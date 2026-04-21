@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: hackathon-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: "pip install uv && uv sync --frozen"
+    startCommand: "uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: anthropic
+      - key: CORS_ORIGINS
+        sync: false
