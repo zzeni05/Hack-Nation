@@ -13,6 +13,7 @@ import {
   MessageSquare,
   TrendingUp,
   FileText,
+  ClipboardCheck,
 } from "lucide-react";
 
 const EVENT_META: Record<
@@ -33,6 +34,13 @@ const EVENT_META: Record<
   feedback_submitted: { icon: MessageSquare, color: "text-ink-soft", label: "Feedback" },
   workflow_recompiled: { icon: RefreshCw, color: "text-ink", label: "Recompile" },
   sop_improvement_recommended: { icon: TrendingUp, color: "text-ochre", label: "SOP signal" },
+  run_created: { icon: ClipboardCheck, color: "text-ink", label: "Run" },
+  run_step_active: { icon: Activity, color: "text-rust", label: "Started" },
+  run_step_completed: { icon: CheckCircle2, color: "text-moss", label: "Completed" },
+  run_step_skipped: { icon: GitBranch, color: "text-ochre", label: "Skipped" },
+  run_step_blocked: { icon: GitBranch, color: "text-rust", label: "Blocked" },
+  run_step_notes_updated: { icon: MessageSquare, color: "text-ink-soft", label: "Run note" },
+  run_completed: { icon: CheckCircle2, color: "text-moss", label: "Run done" },
 };
 
 export function ExecutionTrace({ trace }: { trace: TraceEvent[] }) {

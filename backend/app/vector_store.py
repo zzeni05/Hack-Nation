@@ -133,11 +133,19 @@ def stats() -> dict[str, Any]:
     sources = {item["metadata"].get("source_name") for item in items}
     internal = [item for item in items if item["metadata"].get("priority") == "internal"]
     external = [item for item in items if item["metadata"].get("priority") == "external"]
+    uploaded_internal = [
+        item for item in items if item["metadata"].get("source_origin") == "uploaded_internal"
+    ]
+    seeded_demo = [
+        item for item in items if item["metadata"].get("source_origin") == "seeded_demo"
+    ]
     return {
         "chunks": len(items),
         "sources": len(sources),
         "internal_chunks": len(internal),
         "external_chunks": len(external),
+        "uploaded_internal_chunks": len(uploaded_internal),
+        "seeded_demo_chunks": len(seeded_demo),
     }
 
 

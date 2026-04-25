@@ -23,6 +23,7 @@ from app.knowledge import (
 )
 from app.llm import complete, stream
 from app.protocol_cache import find_protocol_step_by_chunk_id
+from app.run_store import complete_run, create_run, get_run, update_step_notes, update_step_status
 from app.sop_improvement import generate_sop_recommendations
 from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
 from app.tavily_search import discover_external_sources, generate_tavily_queries
@@ -414,6 +415,96 @@ async def workflows_feedback(workflow_id: str, req: FeedbackRequest):
     )
     save_workflow(workflow)
     return {"ok": True, "feedback": feedback, "workflow": workflow}
+
+
+@app.post("/api/workflows/{workflow_id}/runs")
+async def workflow_create_run(workflow_id: str):
+    run = create_run(workflow_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return {"run": run}
+
+
+@app.get("/api/runs/{run_id}")
+async def run_get(run_id: str):
+    run = get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run": run}
+
+
+class RunStepUpdateRequest(BaseModel):
+    operator_note: str | None = None
+    deviation_note: str | None = None
+    actuals: dict[str, object] | None = None
+
+
+@app.post("/api/runs/{run_id}/steps/{step_id}/start")
+async def run_step_start(run_id: str, step_id: str, req: RunStepUpdateRequest | None = None):
+    req = req or RunStepUpdateRequest()
+    run = update_step_status(
+        run_id,
+        step_id,
+        "active",
+        operator_note=req.operator_note,
+        deviation_note=req.deviation_note,
+        actuals=req.actuals,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run or step not found")
+    return {"run": run}
+
+
+@app.post("/api/runs/{run_id}/steps/{step_id}/complete")
+async def run_step_complete(run_id: str, step_id: str, req: RunStepUpdateRequest):
+    run = update_step_status(
+        run_id,
+        step_id,
+        "completed",
+        operator_note=req.operator_note,
+        deviation_note=req.deviation_note,
+        actuals=req.actuals,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run or step not found")
+    return {"run": run}
+
+
+@app.post("/api/runs/{run_id}/steps/{step_id}/skip")
+async def run_step_skip(run_id: str, step_id: str, req: RunStepUpdateRequest):
+    run = update_step_status(
+        run_id,
+        step_id,
+        "skipped",
+        operator_note=req.operator_note,
+        deviation_note=req.deviation_note,
+        actuals=req.actuals,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run or step not found")
+    return {"run": run}
+
+
+@app.post("/api/runs/{run_id}/steps/{step_id}/notes")
+async def run_step_notes(run_id: str, step_id: str, req: RunStepUpdateRequest):
+    run = update_step_notes(
+        run_id,
+        step_id,
+        operator_note=req.operator_note,
+        deviation_note=req.deviation_note,
+        actuals=req.actuals,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run or step not found")
+    return {"run": run}
+
+
+@app.post("/api/runs/{run_id}/complete")
+async def run_complete(run_id: str):
+    run = complete_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run": run}
 
 
 @app.get("/api/workflows/{workflow_id}/trace")

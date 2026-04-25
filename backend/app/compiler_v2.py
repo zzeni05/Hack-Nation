@@ -54,6 +54,7 @@ async def compile_from_protocol_candidates(
         key = file_cache_key(path, parser_mode)
         cached = get_cached_protocol(key)
         if cached:
+            normalize_protocol_origin(cached, "seeded_demo")
             cached["cache_hit"] = True
             protocols.append(cached)
             continue
@@ -79,6 +80,7 @@ async def compile_from_protocol_candidates(
         )
         cached = get_cached_protocol(key)
         if cached:
+            normalize_protocol_origin(cached, "external_tavily")
             cached["cache_hit"] = True
             external_protocols.append(cached)
             continue
@@ -175,6 +177,15 @@ async def compile_from_protocol_candidates(
     return workflow
 
 
+def normalize_protocol_origin(protocol: dict[str, Any], default_origin: str) -> None:
+    protocol.setdefault("source_origin", default_origin)
+    protocol.setdefault("is_user_provided", default_origin == "uploaded_internal")
+    for step in protocol.get("steps", []):
+        for ref in step.get("source_refs", []):
+            ref.setdefault("source_origin", protocol["source_origin"])
+            ref.setdefault("is_user_provided", protocol["is_user_provided"])
+
+
 async def report_progress(
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
     stage: str,
@@ -263,12 +274,21 @@ def derive_plan_from_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
                 {
                     "name": material,
                     "purpose": f"Used in {step['title']}",
-                    "supplier": "not_found",
-                    "catalog": "not_found",
-                    "quantity": "estimate",
+                    "supplier": "Needs source-backed supplier",
+                    "catalog": "Needs catalog/source",
+                    "quantity": "Needs run-specific quantity",
                     "unit_cost": 0,
                     "total": 0,
                     "confidence": "low",
+                    "gap": {
+                        "gap_type": "material_enrichment_needed",
+                        "reason": "Material was extracted from a source-backed step, but supplier, catalog, quantity, or price was not found in retrieved sources.",
+                        "resolution_options": [
+                            "Upload an internal materials list or ordering SOP",
+                            "Retrieve supplier documentation for this reagent",
+                            "Enter quantity and supplier during workflow setup",
+                        ],
+                    },
                     "source_ref": (step.get("source_refs") or [None])[0],
                 },
             )
@@ -279,12 +299,21 @@ def derive_plan_from_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
                     {
                         "name": source_ref.get("source_name", "Supplier documented material"),
                         "purpose": f"Referenced by {step['title']}",
-                        "supplier": source_ref.get("source_name", "not_found"),
-                        "catalog": "not_found",
-                        "quantity": "not_found",
+                        "supplier": source_ref.get("source_name", "Needs supplier"),
+                        "catalog": "Needs catalog/source",
+                        "quantity": "Needs run-specific quantity",
                         "unit_cost": 0,
                         "total": 0,
                         "confidence": "low",
+                        "gap": {
+                            "gap_type": "supplier_catalog_needed",
+                            "reason": "Supplier source was retrieved, but catalog/quantity/price were not extracted from the available content.",
+                            "resolution_options": [
+                                "Open the supplier source and confirm catalog item",
+                                "Upload a lab purchasing list",
+                                "Enter catalog details during setup",
+                            ],
+                        },
                         "source_ref": source_ref,
                     },
                 )
@@ -319,14 +348,38 @@ def derive_plan_from_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
             )
 
     materials = list(materials_by_name.values())
+    if not materials:
+        materials.append(
+            {
+                "name": "Materials list unresolved",
+                "purpose": "Required before execution",
+                "supplier": "Needs source-backed supplier",
+                "catalog": "Needs catalog/source",
+                "quantity": "Needs run-specific quantity",
+                "unit_cost": 0,
+                "total": 0,
+                "confidence": "low",
+                "gap": {
+                    "gap_type": "materials_missing",
+                    "reason": "No materials were extracted from the selected source-backed protocol steps.",
+                    "resolution_options": [
+                        "Upload an internal SOP with materials/reagents section",
+                        "Include supplier docs in retrieval review",
+                        "Enter required materials before starting the run",
+                    ],
+                },
+                "source_ref": None,
+            }
+        )
     budget = [
         {
             "item": item["name"],
             "category": "Reagents",
             "quantity": item.get("quantity", "not_found"),
             "total": item.get("total", 0),
-            "basis": "Derived from source-backed protocol material; price not found unless source provided it.",
+            "basis": "Price not found in retrieved sources; explicit cost gap remains.",
             "confidence": item.get("confidence", "low"),
+            "gap": item.get("gap"),
         }
         for item in materials
     ]
@@ -351,7 +404,8 @@ def derive_timeline(workflow: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "phase": "Protocol setup and procurement",
-            "duration": "not_found",
+            "duration": "Needs source-backed estimate",
+            "gap": duration_gap("No retrieved source specified procurement or setup duration."),
             "start_week": 1,
             "end_week": 1,
             "dependencies": [],
@@ -360,7 +414,8 @@ def derive_timeline(workflow: dict[str, Any]) -> list[dict[str, Any]]:
         },
         {
             "phase": "Execute protocol-derived workflow",
-            "duration": "not_found",
+            "duration": "Needs source-backed estimate",
+            "gap": duration_gap("Retrieved protocol steps did not specify total hands-on or elapsed execution time."),
             "start_week": 2,
             "end_week": 2,
             "dependencies": ["Protocol setup and procurement"],
@@ -369,7 +424,8 @@ def derive_timeline(workflow: dict[str, Any]) -> list[dict[str, Any]]:
         },
         {
             "phase": "Validation and analysis",
-            "duration": "not_found",
+            "duration": "Needs source-backed estimate",
+            "gap": duration_gap("Validation duration requires assay-specific source timing or scientist input."),
             "start_week": 3,
             "end_week": 3,
             "dependencies": ["Execute protocol-derived workflow"],
@@ -377,6 +433,18 @@ def derive_timeline(workflow: dict[str, Any]) -> list[dict[str, Any]]:
             "notes": "Validation duration requires assay-specific retrieved source or scientist input.",
         },
     ]
+
+
+def duration_gap(reason: str) -> dict[str, Any]:
+    return {
+        "gap_type": "missing_duration",
+        "reason": reason,
+        "resolution_options": [
+            "Upload an internal runbook with expected timing",
+            "Retrieve assay/equipment protocol timing",
+            "Scientist enters an estimate during workflow setup",
+        ],
+    }
 
 
 async def score_protocols(
@@ -425,10 +493,19 @@ async def score_protocols(
             score = max(score, float(llm_mapping.get("fit_score", 0.0)))
             covered = llm_mapping.get("covered_intent") or covered
             missing = llm_mapping.get("missing_intent") or missing
+        adjusted_score, confidence_breakdown = operational_confidence(
+            min(score, 1.0),
+            protocol,
+            covered,
+            missing,
+            intent,
+        )
         scored.append(
             {
                 "protocol": protocol,
-                "fit_score": min(score, 1.0),
+                "fit_score": adjusted_score,
+                "semantic_fit_score": min(score, 1.0),
+                "confidence_breakdown": confidence_breakdown,
                 "fit_reason": llm_mapping.get("fit_reason") if llm_mapping else build_fit_reason(protocol, covered, missing),
                 "covered_intent": covered,
                 "missing_intent": missing,
@@ -437,6 +514,64 @@ async def score_protocols(
         )
     scored.sort(key=lambda item: item["fit_score"], reverse=True)
     return scored
+
+
+def operational_confidence(
+    semantic_score: float,
+    protocol: dict[str, Any],
+    covered: list[str],
+    missing: list[str],
+    intent: dict[str, Any],
+) -> tuple[float, dict[str, Any]]:
+    raw = protocol.get("raw_text", "").lower()
+    source_origin = protocol.get("source_origin", "unknown")
+    source_type = protocol.get("source_type", "unknown")
+
+    source_trust = {
+        "uploaded_internal": 0.10,
+        "external_tavily": 0.07,
+        "seeded_demo": 0.04,
+    }.get(source_origin, 0.03)
+    intent_coverage = min(len(set(covered)) / 5, 1.0) * 0.25
+    step_reuse = min(len(protocol.get("steps", [])) / 10, 1.0) * 0.15
+    base_semantic = min(semantic_score, 1.0) * 0.35
+    validation_support = 0.05 if "viability" in raw or "assay" in raw else 0.0
+    plan_completeness = 0.03 if any(step.get("materials") for step in protocol.get("steps", [])) else 0.0
+    if any(step.get("parameters") for step in protocol.get("steps", [])):
+        plan_completeness += 0.03
+    if any("min" in step.get("text", "").lower() or "hour" in step.get("text", "").lower() for step in protocol.get("steps", [])):
+        plan_completeness += 0.04
+
+    score = base_semantic + intent_coverage + step_reuse + source_trust + validation_support + plan_completeness
+    penalties = []
+
+    intervention = intent.get("intervention", "").lower()
+    if intervention and "trehalose" in intervention and "trehalose" not in raw:
+        score = min(score, 0.75)
+        penalties.append("Intervention-specific trehalose handling is not directly supported by this base protocol.")
+    if "post-thaw viability" in intent.get("outcome", "").lower() and validation_support == 0:
+        score = min(score, 0.80)
+        penalties.append("Validation assay support is incomplete.")
+    if source_origin == "seeded_demo":
+        score = min(score, 0.85)
+        penalties.append("Base protocol is bundled demo context, not a user-uploaded internal SOP.")
+    if missing:
+        score = min(score, 0.90)
+        penalties.append(f"{len(missing)} hypothesis requirements remain missing or need adaptation.")
+
+    breakdown = {
+        "semantic_fit": round(base_semantic, 3),
+        "intent_coverage": round(intent_coverage, 3),
+        "step_reuse": round(step_reuse, 3),
+        "source_trust": round(source_trust, 3),
+        "plan_completeness": round(plan_completeness, 3),
+        "validation_support": round(validation_support, 3),
+        "penalties": penalties,
+        "source_origin": source_origin,
+        "source_type": source_type,
+        "score_meaning": "Operational readiness, not just semantic similarity.",
+    }
+    return max(0.0, min(score, 1.0)), breakdown
 
 
 def infer_covered_intent(protocol: dict[str, Any], intent: dict[str, Any]) -> list[str]:
@@ -488,6 +623,11 @@ def build_protocol_basis(scored: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "base_protocol_name": base["protocol"]["source_name"],
         "base_protocol_score": round(base["fit_score"], 2),
+        "semantic_fit_score": round(base.get("semantic_fit_score", base["fit_score"]), 2),
+        "basis_label": protocol_basis_label(base["protocol"]),
+        "source_origin": base["protocol"].get("source_origin", "unknown"),
+        "source_type": base["protocol"].get("source_type", "unknown"),
+        "confidence_breakdown": base.get("confidence_breakdown", {}),
         "candidate_count": len(scored),
         "imported_steps": len(base["protocol"]["steps"]),
         "adapted_steps": len(base["missing_intent"]),
@@ -511,12 +651,31 @@ def build_protocol_sop_match(best: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "best_match_name": protocol["source_name"],
+        "basis_label": protocol_basis_label(protocol),
+        "source_origin": protocol.get("source_origin", "unknown"),
+        "source_type": protocol.get("source_type", "unknown"),
         "match_confidence": round(best["fit_score"], 2),
+        "semantic_fit_score": round(best.get("semantic_fit_score", best["fit_score"]), 2),
+        "confidence_breakdown": best.get("confidence_breakdown", {}),
         "reason": best["fit_reason"],
         "exact_reuse_candidates": exact[:5],
         "adaptation_candidates": adapted[:5] + best["missing_intent"],
         "missing_context": best["missing_intent"],
     }
+
+
+def protocol_basis_label(protocol: dict[str, Any]) -> str:
+    origin = protocol.get("source_origin")
+    source_type = protocol.get("source_type")
+    if origin == "uploaded_internal":
+        return "Best matched internal SOP"
+    if origin == "seeded_demo":
+        return "Demo protocol basis"
+    if origin == "external_tavily":
+        if source_type == "supplier_doc":
+            return "Best supplier protocol basis"
+        return "Best external protocol basis"
+    return "Operational protocol basis"
 
 
 def assemble_steps_from_base_protocol(

@@ -47,6 +47,8 @@ def ingest_internal_knowledge() -> dict[str, Any]:
             text,
             {
                 "source_type": infer_source_type(path),
+                "source_origin": "seeded_demo",
+                "is_user_provided": False,
                 "priority": "internal",
                 "path": str(path),
                 "experiment_type": "cell_cryopreservation",
@@ -72,6 +74,8 @@ def ingest_uploaded_documents(docs: list[dict[str, str]]) -> dict[str, Any]:
             text,
             {
                 "source_type": source_type,
+                "source_origin": "uploaded_internal",
+                "is_user_provided": True,
                 "priority": "internal",
                 "path": f"uploaded://{filename}",
                 "experiment_type": "uploaded_lab_context",
@@ -94,6 +98,8 @@ def ingest_external_sources(sources: list[ExternalSource], experiment_type: str)
             source.content,
             {
                 "source_type": source.source_type,
+                "source_origin": "external_tavily",
+                "is_user_provided": False,
                 "priority": "external",
                 "source_url": source.url,
                 "domain": source.domain,

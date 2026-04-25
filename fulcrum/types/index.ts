@@ -26,6 +26,8 @@ export interface SourceRef {
     | "external_paper"
     | "supplier_doc";
   source_url?: string;
+  source_origin?: "uploaded_internal" | "seeded_demo" | "external_tavily" | "prior_run" | "generated_gap";
+  is_user_provided?: boolean;
   section?: string;
 }
 
@@ -45,7 +47,23 @@ export interface StructuredIntent {
 
 export interface SopMatch {
   best_match_name: string;
+  basis_label?: string;
+  source_origin?: string;
+  source_type?: string;
   match_confidence: number;
+  semantic_fit_score?: number;
+  confidence_breakdown?: {
+    semantic_fit?: number;
+    intent_coverage?: number;
+    step_reuse?: number;
+    source_trust?: number;
+    plan_completeness?: number;
+    validation_support?: number;
+    penalties?: string[];
+    source_origin?: string;
+    source_type?: string;
+    score_meaning?: string;
+  };
   reason: string;
   exact_reuse_candidates: string[];
   adaptation_candidates: string[];
@@ -105,6 +123,7 @@ export interface MaterialItem {
   unit_cost: number;
   total: number;
   confidence: "high" | "medium" | "low";
+  gap?: PlanGap;
   source_ref?: SourceRef;
 }
 
@@ -115,16 +134,24 @@ export interface BudgetLine {
   total: number;
   basis: string;
   confidence: "high" | "medium" | "low";
+  gap?: PlanGap;
 }
 
 export interface TimelinePhase {
   phase: string;
   duration: string;
+  gap?: PlanGap;
   start_week: number;
   end_week: number;
   dependencies: string[];
   critical_path: boolean;
   notes?: string;
+}
+
+export interface PlanGap {
+  gap_type: string;
+  reason: string;
+  resolution_options: string[];
 }
 
 export interface ValidationItem {
@@ -159,7 +186,14 @@ export interface TraceEvent {
     | "note_added"
     | "feedback_submitted"
     | "workflow_recompiled"
-    | "sop_improvement_recommended";
+    | "sop_improvement_recommended"
+    | "run_created"
+    | "run_step_active"
+    | "run_step_completed"
+    | "run_step_skipped"
+    | "run_step_blocked"
+    | "run_step_notes_updated"
+    | "run_completed";
   summary: string;
   scientist_note?: string;
   affected_sections?: string[];
@@ -195,6 +229,11 @@ export interface Workflow {
   protocol_basis?: {
     base_protocol_name: string;
     base_protocol_score: number;
+    semantic_fit_score?: number;
+    basis_label?: string;
+    source_origin?: string;
+    source_type?: string;
+    confidence_breakdown?: SopMatch["confidence_breakdown"];
     candidate_count: number;
     imported_steps: number;
     adapted_steps: number;
@@ -209,6 +248,38 @@ export interface Workflow {
   open_decision_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ExecutionRunStep {
+  step_id: string;
+  order: number;
+  title: string;
+  classification: StepClassification;
+  status: "not_started" | "active" | "completed" | "skipped" | "blocked";
+  started_at?: string | null;
+  completed_at?: string | null;
+  operator_note: string;
+  deviation_note: string;
+  actuals: Record<string, unknown>;
+  attachments: { name: string; url?: string; note?: string }[];
+  source_refs: SourceRef[];
+}
+
+export interface ExecutionRun {
+  run_id: string;
+  workflow_id: string;
+  status: "not_started" | "in_progress" | "paused" | "completed" | "abandoned";
+  current_step_id?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  steps: ExecutionRunStep[];
+  events: {
+    event_id: string;
+    event_type: string;
+    summary: string;
+    timestamp: string;
+  }[];
 }
 
 export interface SampleHypothesis {

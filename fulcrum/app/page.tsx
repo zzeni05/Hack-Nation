@@ -2,8 +2,19 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Workflow } from "@/types";
-import { compileWorkflowStream, commitDecision, modifyStep, submitFeedback, type CompileProgressEvent } from "@/lib/api";
+import type { ExecutionRun, Workflow } from "@/types";
+import {
+  compileWorkflowStream,
+  commitDecision,
+  completeExecutionRun,
+  completeRunStep,
+  createExecutionRun,
+  modifyStep,
+  saveRunStepNotes,
+  startRunStep,
+  submitFeedback,
+  type CompileProgressEvent,
+} from "@/lib/api";
 import { Masthead } from "@/components/Masthead";
 import { HypothesisInput } from "@/components/HypothesisInput";
 import { CompilingOverlay } from "@/components/CompilingOverlay";
@@ -15,6 +26,7 @@ import { WorkflowStepper } from "@/components/WorkflowStepper";
 import { StepInspector } from "@/components/StepInspector";
 import { PlanTabs } from "@/components/PlanTabs";
 import { ExecutionTrace, SopImprovementPanel } from "@/components/Trace";
+import { ExecutionWorkspace } from "@/components/ExecutionWorkspace";
 import { ArrowUp, RefreshCw } from "lucide-react";
 
 export default function Home() {
@@ -23,6 +35,7 @@ export default function Home() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [compileEvents, setCompileEvents] = useState<CompileProgressEvent[]>([]);
+  const [executionRun, setExecutionRun] = useState<ExecutionRun | null>(null);
 
   const selectedStep =
     workflow?.steps.find((s) => s.step_id === selectedStepId) ?? null;
@@ -38,6 +51,7 @@ export default function Home() {
         onEvent: (event) => setCompileEvents((events) => [...events.slice(-80), event]),
       });
       setWorkflow(wf);
+      setExecutionRun(null);
       // Smoothly scroll to results after compile
       setTimeout(() => {
         document
@@ -90,7 +104,44 @@ export default function Home() {
   function handleReset() {
     setWorkflow(null);
     setSelectedStepId(null);
+    setExecutionRun(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleCreateRun() {
+    if (!workflow) return;
+    const run = await createExecutionRun(workflow.workflow_id);
+    setExecutionRun(run);
+  }
+
+  async function handleStartRunStep(stepId: string) {
+    if (!executionRun) return;
+    setExecutionRun(await startRunStep(executionRun.run_id, stepId));
+  }
+
+  async function handleSaveRunStep(
+    stepId: string,
+    operatorNote: string,
+    deviationNote: string,
+    actuals: Record<string, unknown>
+  ) {
+    if (!executionRun) return;
+    setExecutionRun(await saveRunStepNotes(executionRun.run_id, stepId, { operatorNote, deviationNote, actuals }));
+  }
+
+  async function handleCompleteRunStep(
+    stepId: string,
+    operatorNote: string,
+    deviationNote: string,
+    actuals: Record<string, unknown>
+  ) {
+    if (!executionRun) return;
+    setExecutionRun(await completeRunStep(executionRun.run_id, stepId, { operatorNote, deviationNote, actuals }));
+  }
+
+  async function handleCompleteRun() {
+    if (!executionRun) return;
+    setExecutionRun(await completeExecutionRun(executionRun.run_id));
   }
 
   return (
@@ -222,6 +273,16 @@ export default function Home() {
                   {/* Plan tabs */}
                   <PlanTabs workflow={workflow} />
 
+                  <ExecutionWorkspace
+                    workflow={workflow}
+                    run={executionRun}
+                    onCreateRun={handleCreateRun}
+                    onStartStep={handleStartRunStep}
+                    onSaveStep={handleSaveRunStep}
+                    onCompleteStep={handleCompleteRunStep}
+                    onCompleteRun={handleCompleteRun}
+                  />
+
                   {/* SOP improvements */}
                   <SopImprovementPanel recs={workflow.sop_recommendations} />
                 </div>
@@ -249,19 +310,32 @@ export default function Home() {
                   {workflow.protocol_basis && (
                     <section className="border border-moss/40 bg-moss/5 p-4">
                       <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-moss">
-                        Protocol basis
+                        {workflow.protocol_basis.basis_label ?? "Protocol basis"}
                       </div>
                       <h3 className="mt-2 font-display text-[18px] leading-tight tracking-tight">
                         {workflow.protocol_basis.base_protocol_name}
                       </h3>
                       <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">
-                        <span>Score {Math.round(workflow.protocol_basis.base_protocol_score * 100)}%</span>
+                        <span>Readiness {Math.round(workflow.protocol_basis.base_protocol_score * 100)}%</span>
+                        {workflow.protocol_basis.semantic_fit_score !== undefined && (
+                          <span>Semantic {Math.round(workflow.protocol_basis.semantic_fit_score * 100)}%</span>
+                        )}
                         <span>{workflow.protocol_basis.candidate_count} candidates</span>
                         <span>{workflow.protocol_basis.imported_steps} imported</span>
                         <span>{workflow.protocol_basis.gap_filled_steps} gap-filled</span>
                         <span>{workflow.protocol_basis.parser_mode ?? "unknown"}</span>
                         <span>{workflow.protocol_basis.cache_hit ? "cache hit" : "cache miss"}</span>
+                        <span>{workflow.protocol_basis.source_origin ?? "unknown origin"}</span>
                       </div>
+                      {workflow.protocol_basis.confidence_breakdown?.penalties?.length ? (
+                        <ul className="mt-3 space-y-1 border-t border-moss/20 pt-3">
+                          {workflow.protocol_basis.confidence_breakdown.penalties.slice(0, 3).map((penalty, i) => (
+                            <li key={i} className="font-display text-[12px] leading-[1.35] text-ink-soft">
+                              {penalty}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </section>
                   )}
                   {workflow.validation_report && (

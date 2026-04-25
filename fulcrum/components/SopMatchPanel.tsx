@@ -15,10 +15,10 @@ export function SopMatchPanel({ match }: { match: SopMatch }) {
             §03
           </span>
           <h2 className="font-display text-[22px] leading-none tracking-tight">
-            SOP Match
+            Protocol Basis
           </h2>
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-            ↳ Mapping onto institutional memory
+            ↳ Source trust · operational readiness
           </span>
         </div>
       </div>
@@ -29,7 +29,7 @@ export function SopMatchPanel({ match }: { match: SopMatch }) {
             <FileText className="mt-1 h-5 w-5 text-ink-soft" strokeWidth={1.5} />
             <div className="flex-1 min-w-0">
               <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-                Best matched SOP
+                {match.basis_label ?? "Operational protocol basis"}
               </div>
               <h3 className="mt-1 font-display text-[28px] leading-[1.05] tracking-tight">
                 {match.best_match_name}
@@ -71,7 +71,7 @@ export function SopMatchPanel({ match }: { match: SopMatch }) {
         {/* Confidence dial */}
         <div className="border border-ink/15 bg-paper-deep/30 p-5">
           <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-            Match confidence
+            Readiness confidence
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="font-display text-[60px] leading-none tabular-nums" style={{ fontWeight: 500 }}>
@@ -95,11 +95,25 @@ export function SopMatchPanel({ match }: { match: SopMatch }) {
           </div>
 
           <div className="mt-5 border-t border-rule pt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-            Interpretation
+            Meaning
           </div>
           <p className="mt-1 font-display text-[13px] leading-[1.5] text-ink-soft">
-            High partial match. Most procedural infrastructure reusable; specific intervention requires informed adaptation.
+            {match.confidence_breakdown?.score_meaning ?? "Operational readiness, not just semantic similarity."}
           </p>
+          {match.semantic_fit_score !== undefined && (
+            <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">
+              Semantic fit {Math.round(match.semantic_fit_score * 100)}% · {match.source_origin ?? "unknown source"}
+            </div>
+          )}
+          {match.confidence_breakdown?.penalties && match.confidence_breakdown.penalties.length > 0 && (
+            <ul className="mt-3 space-y-1 border-t border-rule pt-3">
+              {match.confidence_breakdown.penalties.map((penalty, i) => (
+                <li key={i} className="font-display text-[12px] leading-[1.35] text-rust">
+                  {penalty}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </section>

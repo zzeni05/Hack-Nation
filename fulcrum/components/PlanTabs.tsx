@@ -145,6 +145,7 @@ function MaterialsTable({ workflow, total }: { workflow: Workflow; total: number
               <td className="py-3 pr-3">
                 <div className="text-ink" style={{ fontWeight: 500 }}>{m.name}</div>
                 <div className="font-mono text-[10px] text-ink-mute">{m.purpose}</div>
+                {m.gap && <GapInline reason={m.gap.reason} />}
               </td>
               <td className="py-3 pr-3 font-mono text-[12px] tabular-nums text-ink-soft">{m.supplier}</td>
               <td className="py-3 pr-3 font-mono text-[12px] tabular-nums text-ink">{m.catalog}</td>
@@ -223,6 +224,7 @@ function BudgetView({ workflow, total }: { workflow: Workflow; total: number }) 
                   conf · {b.confidence}
                 </span>
               </div>
+              {b.gap && <GapInline reason={b.gap.reason} />}
             </div>
           </motion.div>
         ))}
@@ -271,10 +273,11 @@ function TimelineView({ workflow, totalWeeks }: { workflow: Workflow; totalWeeks
               className="grid items-center gap-2"
               style={{ gridTemplateColumns: `220px 1fr` }}
             >
-              <div className="font-display text-[13px]">
-                <div style={{ fontWeight: 500 }}>{phase.phase}</div>
-                <div className="font-mono text-[10px] text-ink-mute">{phase.duration}</div>
-              </div>
+                <div className="font-display text-[13px]">
+                  <div style={{ fontWeight: 500 }}>{phase.phase}</div>
+                  <div className="font-mono text-[10px] text-ink-mute">{phase.duration}</div>
+                  {phase.gap && <GapInline reason={phase.gap.reason} />}
+                </div>
               <div className="relative h-7 border-y border-rule-soft bg-paper-deep/20">
                 {/* Week guides */}
                 {Array.from({ length: totalWeeks - 1 }).map((_, j) => (
@@ -316,6 +319,14 @@ function TimelineView({ workflow, totalWeeks }: { workflow: Workflow; totalWeeks
           <span className="h-2 w-3 border border-ink/30 bg-paper" /> Parallel / non-critical
         </span>
       </div>
+    </div>
+  );
+}
+
+function GapInline({ reason }: { reason: string }) {
+  return (
+    <div className="mt-1 border-l border-ochre pl-2 font-mono text-[9px] uppercase tracking-[0.14em] text-ochre">
+      Gap · {reason}
     </div>
   );
 }

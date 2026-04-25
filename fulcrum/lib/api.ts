@@ -1,4 +1,4 @@
-import type { Workflow } from "@/types";
+import type { ExecutionRun, Workflow } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -237,4 +237,58 @@ export async function getKnowledgeChunk(chunkId: string): Promise<{
   metadata: Record<string, unknown>;
 }> {
   return apiFetch(`/api/knowledge/chunks/${encodeURIComponent(chunkId)}`);
+}
+
+export async function createExecutionRun(workflowId: string): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/workflows/${workflowId}/runs`, {
+    method: "POST",
+  });
+  return result.run;
+}
+
+export async function startRunStep(runId: string, stepId: string): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/steps/${stepId}/start`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return result.run;
+}
+
+export async function completeRunStep(
+  runId: string,
+  stepId: string,
+  payload: { operatorNote?: string; deviationNote?: string; actuals?: Record<string, unknown> }
+): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/steps/${stepId}/complete`, {
+    method: "POST",
+    body: JSON.stringify({
+      operator_note: payload.operatorNote ?? null,
+      deviation_note: payload.deviationNote ?? null,
+      actuals: payload.actuals ?? {},
+    }),
+  });
+  return result.run;
+}
+
+export async function saveRunStepNotes(
+  runId: string,
+  stepId: string,
+  payload: { operatorNote?: string; deviationNote?: string; actuals?: Record<string, unknown> }
+): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/steps/${stepId}/notes`, {
+    method: "POST",
+    body: JSON.stringify({
+      operator_note: payload.operatorNote ?? null,
+      deviation_note: payload.deviationNote ?? null,
+      actuals: payload.actuals ?? {},
+    }),
+  });
+  return result.run;
+}
+
+export async function completeExecutionRun(runId: string): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/complete`, {
+    method: "POST",
+  });
+  return result.run;
 }

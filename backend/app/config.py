@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     feedback_store_path: str = "./data/feedback.json"
     trace_store_path: str = "./data/trace_events.json"
     protocol_cache_path: str = "./data/protocol_candidates.json"
+    run_store_path: str = "./data/runs.json"
+    upload_store_path: str = "./data/uploads"
 
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
     cors_origin_regex: str | None = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"

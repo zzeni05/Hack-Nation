@@ -69,6 +69,8 @@ def parse_protocol_file(path: Path, source_type: str) -> dict[str, Any]:
                             "chunk_id": f"protocol_{slugify(source_name)}_s{order:03d}",
                             "source_name": source_name,
                             "source_type": source_type,
+                            "source_origin": "seeded_demo",
+                            "is_user_provided": False,
                             "section": section["title"],
                         }
                     ],
@@ -80,6 +82,8 @@ def parse_protocol_file(path: Path, source_type: str) -> dict[str, Any]:
         "protocol_id": f"protocol_{slugify(source_name)}",
         "source_name": source_name,
         "source_type": source_type,
+        "source_origin": "seeded_demo",
+        "is_user_provided": False,
         "domain": infer_domain(source_name, text),
         "steps": steps,
         "raw_text": text,
