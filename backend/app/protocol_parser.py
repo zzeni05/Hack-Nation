@@ -15,7 +15,7 @@ LIST_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(.+)$")
 
 
 def parse_internal_protocols() -> list[dict[str, Any]]:
-    root = Path(settings.knowledge_path)
+    root = Path(settings.upload_store_path)
     if not root.exists():
         return []
 
@@ -26,12 +26,12 @@ def parse_internal_protocols() -> list[dict[str, Any]]:
         source_type = infer_source_type(path)
         if source_type not in {"internal_sop", "internal_runbook", "equipment_manual", "facility_constraint"}:
             continue
-        candidates.append(parse_protocol_file(path, source_type))
+        candidates.append(parse_protocol_file(path, source_type, source_origin="uploaded_internal", is_user_provided=True))
     return candidates
 
 
 def internal_protocol_files() -> list[tuple[Path, str]]:
-    root = Path(settings.knowledge_path)
+    root = Path(settings.upload_store_path)
     if not root.exists():
         return []
     files = []
@@ -45,7 +45,13 @@ def internal_protocol_files() -> list[tuple[Path, str]]:
     return files
 
 
-def parse_protocol_file(path: Path, source_type: str) -> dict[str, Any]:
+def parse_protocol_file(
+    path: Path,
+    source_type: str,
+    *,
+    source_origin: str = "uploaded_internal",
+    is_user_provided: bool = True,
+) -> dict[str, Any]:
     text = path.read_text()
     source_name = display_name(path)
     sections = split_sections(text)
@@ -69,8 +75,8 @@ def parse_protocol_file(path: Path, source_type: str) -> dict[str, Any]:
                             "chunk_id": f"protocol_{slugify(source_name)}_s{order:03d}",
                             "source_name": source_name,
                             "source_type": source_type,
-                            "source_origin": "seeded_demo",
-                            "is_user_provided": False,
+                            "source_origin": source_origin,
+                            "is_user_provided": is_user_provided,
                             "section": section["title"],
                         }
                     ],
@@ -82,8 +88,8 @@ def parse_protocol_file(path: Path, source_type: str) -> dict[str, Any]:
         "protocol_id": f"protocol_{slugify(source_name)}",
         "source_name": source_name,
         "source_type": source_type,
-        "source_origin": "seeded_demo",
-        "is_user_provided": False,
+        "source_origin": source_origin,
+        "is_user_provided": is_user_provided,
         "domain": infer_domain(source_name, text),
         "steps": steps,
         "raw_text": text,

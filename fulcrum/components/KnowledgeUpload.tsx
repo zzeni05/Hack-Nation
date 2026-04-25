@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Database, FileUp, Loader2 } from "lucide-react";
-import { ingestInternalKnowledge, uploadKnowledgeFiles } from "@/lib/api";
+import { FileUp, Loader2 } from "lucide-react";
+import { uploadKnowledgeFiles } from "@/lib/api";
 
 type IngestStats = {
   documents_ingested: number;
@@ -38,18 +38,6 @@ export function KnowledgeUpload({ disabled = false }: { disabled?: boolean }) {
     }
   }
 
-  async function ingestSeeded() {
-    setIsUploading(true);
-    setError(null);
-    try {
-      setLastResult(await ingestInternalKnowledge());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Seed ingestion failed");
-    } finally {
-      setIsUploading(false);
-    }
-  }
-
   return (
     <div className="mt-7 border border-ink/20 bg-paper-deep/25">
       <div className="flex items-center justify-between border-b border-ink/20 px-4 py-2">
@@ -74,7 +62,7 @@ export function KnowledgeUpload({ disabled = false }: { disabled?: boolean }) {
                 Upload internal SOPs, runbooks, prior runs, or equipment notes
               </span>
               <span className="mt-1 block font-display text-[13px] leading-[1.45] text-ink-soft">
-                Markdown, text, and JSON files are read locally in the browser and sent to the backend for chunking and embedding.
+                Markdown, text, and JSON files are read locally in the browser, stored as uploaded protocol candidates, chunked, and embedded.
               </span>
             </span>
             <FileUp className="ml-4 h-5 w-5 shrink-0 text-rust" strokeWidth={1.5} />
@@ -127,18 +115,8 @@ export function KnowledgeUpload({ disabled = false }: { disabled?: boolean }) {
             {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}
             Embed uploads
           </button>
-          <button
-            type="button"
-            disabled={disabled || isUploading}
-            onClick={ingestSeeded}
-            className="inline-flex items-center justify-center gap-2 border border-ink/40 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink transition-colors hover:border-ink hover:bg-ink hover:text-paper disabled:opacity-30"
-          >
-            <Database className="h-3.5 w-3.5" strokeWidth={1.5} />
-            Seed demo docs
-          </button>
         </div>
       </div>
     </div>
   );
 }
-

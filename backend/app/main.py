@@ -15,12 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.config import settings
 from app.compiler_v2 import commit_decision_source_grounded, compile_from_protocol_candidates
 from app.intent import extract_structured_intent
-from app.knowledge import (
-    ingest_external_sources,
-    ingest_internal_knowledge,
-    ingest_uploaded_documents,
-    retrieve_context,
-)
+from app.knowledge import ingest_external_sources, ingest_uploaded_documents, retrieve_context
 from app.llm import complete, stream
 from app.protocol_cache import find_protocol_step_by_chunk_id
 from app.run_store import complete_run, create_run, get_run, update_step_notes, update_step_status
@@ -148,11 +143,6 @@ class KnowledgeUploadRequest(BaseModel):
     documents: list[KnowledgeUploadDocument]
 
 
-@app.post("/api/knowledge/ingest-internal")
-async def knowledge_ingest_internal():
-    return ingest_internal_knowledge()
-
-
 @app.post("/api/knowledge/upload")
 async def knowledge_upload(req: KnowledgeUploadRequest):
     docs = [doc.model_dump() for doc in req.documents if doc.text.strip()]
@@ -185,9 +175,6 @@ async def compile_workflow_core(req: CompileWorkflowRequest, progress=None):
         raise HTTPException(status_code=400, detail="Hypothesis is required")
     stage = "start"
     try:
-        stage = "ingest_internal_knowledge"
-        await emit_progress(progress, stage, "Loading and chunking internal SOP/runbook knowledge")
-        ingest_internal_knowledge()
         stage = "extract_structured_intent"
         await emit_progress(progress, stage, "Extracting model system, intervention, comparator, outcome, and constraints")
         structured_intent = extract_structured_intent(req.hypothesis)

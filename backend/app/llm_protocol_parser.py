@@ -27,9 +27,20 @@ def llm_available() -> bool:
     return False
 
 
-async def parse_protocol_file_llm(path, source_type: str) -> dict[str, Any]:
+async def parse_protocol_file_llm(
+    path,
+    source_type: str,
+    *,
+    source_origin: str = "uploaded_internal",
+    is_user_provided: bool = True,
+) -> dict[str, Any]:
     if not llm_available():
-        fallback = parse_protocol_file(path, source_type)
+        fallback = parse_protocol_file(
+            path,
+            source_type,
+            source_origin=source_origin,
+            is_user_provided=is_user_provided,
+        )
         fallback["parser_mode"] = "heuristic_fallback_no_llm_key"
         return fallback
 
@@ -79,8 +90,8 @@ async def parse_protocol_file_llm(path, source_type: str) -> dict[str, Any]:
                             "chunk_id": f"protocol_{slugify(source_name)}_llm_s{order:03d}",
                             "source_name": source_name,
                             "source_type": source_type,
-                            "source_origin": "seeded_demo",
-                            "is_user_provided": False,
+                            "source_origin": source_origin,
+                            "is_user_provided": is_user_provided,
                             "section": section["title"],
                         }
                     ],
@@ -89,7 +100,12 @@ async def parse_protocol_file_llm(path, source_type: str) -> dict[str, Any]:
             order += 1
 
     if not steps:
-        fallback = parse_protocol_file(path, source_type)
+        fallback = parse_protocol_file(
+            path,
+            source_type,
+            source_origin=source_origin,
+            is_user_provided=is_user_provided,
+        )
         fallback["parser_mode"] = "heuristic_fallback_empty_llm_steps"
         return fallback
 
@@ -97,8 +113,8 @@ async def parse_protocol_file_llm(path, source_type: str) -> dict[str, Any]:
         "protocol_id": f"protocol_{slugify(source_name)}",
         "source_name": source_name,
         "source_type": source_type,
-        "source_origin": "seeded_demo",
-        "is_user_provided": False,
+        "source_origin": source_origin,
+        "is_user_provided": is_user_provided,
         "domain": infer_domain_from_steps(steps),
         "steps": steps,
         "raw_text": raw_text,

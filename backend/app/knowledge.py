@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,12 @@ def infer_source_type(path: Path) -> str:
 
 def display_name(path: Path) -> str:
     return path.stem.replace("_", " ").replace("-", " ").title()
+
+
+def safe_upload_filename(filename: str) -> str:
+    base = Path(filename).name
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", base).strip("._")
+    return safe or "uploaded_protocol.txt"
 
 
 def ingest_internal_knowledge() -> dict[str, Any]:
@@ -65,10 +72,14 @@ def ingest_internal_knowledge() -> dict[str, Any]:
 
 def ingest_uploaded_documents(docs: list[dict[str, str]]) -> dict[str, Any]:
     chunks_created = 0
+    upload_root = Path(settings.upload_store_path)
+    upload_root.mkdir(parents=True, exist_ok=True)
     for doc in docs:
-        filename = doc["filename"]
+        filename = safe_upload_filename(doc["filename"])
         text = doc["text"]
         source_type = doc.get("source_type") or infer_uploaded_source_type(filename)
+        stored_path = upload_root / filename
+        stored_path.write_text(text)
         chunks_created += upsert_document(
             filename,
             text,
@@ -77,7 +88,7 @@ def ingest_uploaded_documents(docs: list[dict[str, str]]) -> dict[str, Any]:
                 "source_origin": "uploaded_internal",
                 "is_user_provided": True,
                 "priority": "internal",
-                "path": f"uploaded://{filename}",
+                "path": str(stored_path),
                 "experiment_type": "uploaded_lab_context",
             },
         )
@@ -135,6 +146,10 @@ def infer_uploaded_source_type(filename: str) -> str:
 
 def retrieve_context(query: str) -> dict[str, Any]:
     results = search(query, n_results=16, source_priority="internal")
-    internal = [item for item in results if item["metadata"].get("priority") == "internal"][:10]
+    internal = [
+        item for item in results
+        if item["metadata"].get("priority") == "internal"
+        and item["metadata"].get("source_origin") == "uploaded_internal"
+    ][:10]
     external = [item for item in results if item["metadata"].get("priority") == "external"][:6]
     return {"internal": internal, "external": external, "stats": stats()}

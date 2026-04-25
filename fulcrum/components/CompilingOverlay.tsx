@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import type { CompileProgressEvent } from "@/lib/api";
 
 const STAGES: { id: string; label: string }[] = [
-  { id: "ingest_internal_knowledge", label: "Querying internal SOP knowledge base" },
   { id: "extract_structured_intent", label: "Extracting structured intent" },
   { id: "discover_external_sources_tavily", label: "Discovering external protocols via Tavily" },
   { id: "tavily_query", label: "Running targeted external searches" },
@@ -13,7 +12,10 @@ const STAGES: { id: string; label: string }[] = [
   { id: "ingest_external_sources", label: "Embedding external references locally" },
   { id: "retrieve_context", label: "Retrieving nearest source chunks" },
   { id: "compile_from_protocol_candidates", label: "Compiling executable workflow" },
-  { id: "scoring_protocol_candidates", label: "Scoring SOP and protocol fit" },
+  { id: "parsing_internal_protocol", label: "Parsing uploaded internal SOPs" },
+  { id: "parsing_external_protocol", label: "Parsing external protocol candidates" },
+  { id: "scoring_protocol_candidates", label: "Scoring protocol fit" },
+  { id: "scoring_protocol_candidate", label: "Mapping candidate to hypothesis" },
   { id: "generating_decision_nodes", label: "Generating decision nodes" },
   { id: "drafting_plan_sections", label: "Drafting plan sections" },
   { id: "validating_workflow", label: "Validating provenance" },

@@ -205,14 +205,6 @@ export async function modifyStep(
   });
 }
 
-export async function ingestInternalKnowledge(): Promise<{
-  documents_ingested: number;
-  chunks_created: number;
-  stats: { chunks: number; sources: number; internal_chunks: number; external_chunks: number };
-}> {
-  return apiFetch("/api/knowledge/ingest-internal", { method: "POST" });
-}
-
 export async function uploadKnowledgeFiles(files: File[]): Promise<{
   documents_ingested: number;
   chunks_created: number;

@@ -47,18 +47,23 @@ async def compile_from_protocol_candidates(
         await report_progress(
             progress,
             "parsing_internal_protocol",
-            f"Parsing internal {source_type}: {path.name}",
+            f"Parsing uploaded internal {source_type}: {path.name}",
             current=index,
             total=len(internal_files),
         )
         key = file_cache_key(path, parser_mode)
         cached = get_cached_protocol(key)
         if cached:
-            normalize_protocol_origin(cached, "seeded_demo")
+            normalize_protocol_origin(cached, "uploaded_internal")
             cached["cache_hit"] = True
             protocols.append(cached)
             continue
-        protocol = await parse_protocol_file_llm(path, source_type)
+        protocol = await parse_protocol_file_llm(
+            path,
+            source_type,
+            source_origin="uploaded_internal",
+            is_user_provided=True,
+        )
         protocol["cache_hit"] = False
         set_cached_protocol(key, protocol)
         protocols.append(protocol)
@@ -135,10 +140,10 @@ async def compile_from_protocol_candidates(
         workflow["sop_match"] = {
             "best_match_name": "No protocol candidate found",
             "match_confidence": 0.0,
-            "reason": "No internal SOP/runbook could be parsed into protocol candidates.",
+            "reason": "No uploaded internal SOP/runbook or external protocol source could be parsed into protocol candidates.",
             "exact_reuse_candidates": [],
             "adaptation_candidates": [],
-            "missing_context": ["Upload SOPs or runbooks with procedural steps."],
+            "missing_context": ["Upload SOPs/runbooks or enable external retrieval with protocol-like sources."],
         }
 
     workflow["open_decision_count"] = len(
