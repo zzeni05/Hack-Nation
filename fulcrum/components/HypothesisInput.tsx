@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, BookOpenText, Sparkles } from "lucide-react";
 import { SAMPLE_HYPOTHESES } from "@/lib/samples";
+import { KnowledgeUpload } from "@/components/KnowledgeUpload";
 
 interface Props {
   onCompile: (hypothesis: string) => void;
@@ -88,6 +89,8 @@ export function HypothesisInput({ onCompile, isCompiling }: Props) {
           </div>
         </div>
       </div>
+
+      <KnowledgeUpload disabled={isCompiling} />
 
       {/* Sample hypotheses */}
       <div className="mt-10">

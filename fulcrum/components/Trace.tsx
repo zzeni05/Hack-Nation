@@ -22,6 +22,7 @@ const EVENT_META: Record<
   workflow_compiled: { icon: Activity, color: "text-ink", label: "Compiled" },
   internal_sources_retrieved: { icon: Database, color: "text-ink-soft", label: "Internal RAG" },
   external_sources_retrieved: { icon: Globe, color: "text-ink-soft", label: "Tavily" },
+  external_sources_embedded: { icon: Database, color: "text-ink-soft", label: "External RAG" },
   sop_match_scored: { icon: CheckCircle2, color: "text-moss", label: "SOP scored" },
   decision_node_created: { icon: GitBranch, color: "text-rust", label: "Branch" },
   decision_committed: { icon: CheckCircle2, color: "text-moss", label: "Decision" },

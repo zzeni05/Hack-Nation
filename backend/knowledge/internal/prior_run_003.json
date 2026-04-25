@@ -1,0 +1,10 @@
+{
+  "run_id": "prior_run_003",
+  "experiment_type": "cell_cryopreservation",
+  "sop": "Mammalian Cell Freezing SOP",
+  "modified_step": "Cryoprotectant equilibration",
+  "original": "DMSO equilibration on ice for 10 minutes",
+  "modification": "Added trehalose pre-incubation pilot before freezing",
+  "reason": "Testing membrane-stabilizing cryoprotectant mechanism"
+}
+

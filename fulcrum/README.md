@@ -17,6 +17,13 @@ A frontend for an AI lab operations engine that compiles scientific hypotheses i
 
 ```bash
 npm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+```
+
+or:
+
+```bash
+export NEXT_PUBLIC_API_URL=http://localhost:8000
 npm run dev
 ```
 
@@ -32,6 +39,7 @@ app/
 components/
   Masthead.tsx        # Editorial header with section nav
   HypothesisInput.tsx # §01 input + sample hypothesis cards
+  KnowledgeUpload.tsx # local SOP/runbook/prior-run upload and embedding trigger
   CompilingOverlay.tsx# 8-stage animated compile sequence
   LiteratureQC.tsx    # §02 novelty signal + references
   SopMatchPanel.tsx   # §03 SOP fit analysis with confidence dial
@@ -42,7 +50,7 @@ components/
   PlanTabs.tsx        # §05 materials/budget/timeline/validation/risks
   Trace.tsx           # §06 execution trace + SOP improvement signals
 lib/
-  api.ts              # API client — currently mock, swap for real fetches
+  api.ts              # FastAPI client
   mock-workflow.ts    # HeLa trehalose canonical demo workflow
   samples.ts          # All four challenge sample hypotheses
   display.ts          # Classification metadata, formatters
@@ -50,21 +58,9 @@ types/
   index.ts            # Full data model — mirrors backend schemas
 ```
 
-## Wiring up the backend
+## Backend
 
-The frontend is built to swap to real APIs with zero UI changes. Every type in `types/index.ts` mirrors the backend schemas in the implementation plan, and every API call lives in `lib/api.ts`:
-
-```ts
-// lib/api.ts — replace mock bodies with real fetches
-export async function compileWorkflow(hypothesis: string) {
-  const res = await fetch("/api/workflows/compile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hypothesis, use_external_retrieval: true }),
-  });
-  return (await res.json()).workflow;
-}
-```
+Run the FastAPI backend from `../backend` on port `8000`. The frontend calls it through `NEXT_PUBLIC_API_URL`.
 
 Endpoints expected:
 

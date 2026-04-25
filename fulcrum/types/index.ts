@@ -150,6 +150,7 @@ export interface TraceEvent {
     | "workflow_compiled"
     | "internal_sources_retrieved"
     | "external_sources_retrieved"
+    | "external_sources_embedded"
     | "sop_match_scored"
     | "decision_node_created"
     | "decision_committed"

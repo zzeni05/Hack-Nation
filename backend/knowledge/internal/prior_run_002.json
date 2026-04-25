@@ -1,0 +1,10 @@
+{
+  "run_id": "prior_run_002",
+  "experiment_type": "cell_cryopreservation",
+  "sop": "Viability Assay Runbook",
+  "modified_step": "Step 3",
+  "original": "Manual trypan blue counting as primary post-thaw readout",
+  "modification": "Used CellTiter-Glo at 0h, 24h, and 48h post-thaw",
+  "reason": "Needed multi-timepoint comparison across cryoprotectant conditions"
+}
+

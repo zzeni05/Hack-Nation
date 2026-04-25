@@ -21,6 +21,7 @@ export default function Home() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const selectedStep =
     workflow?.steps.find((s) => s.step_id === selectedStepId) ?? null;
@@ -28,6 +29,7 @@ export default function Home() {
   async function handleCompile(hypothesis: string) {
     setIsCompiling(true);
     setSelectedStepId(null);
+    setError(null);
     try {
       const wf = await compileWorkflow(hypothesis, { useExternalRetrieval: true });
       setWorkflow(wf);
@@ -37,6 +39,8 @@ export default function Home() {
           .getElementById("results")
           ?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 200);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Workflow compilation failed");
     } finally {
       setIsCompiling(false);
     }
@@ -70,10 +74,17 @@ export default function Home() {
         <div className="grid-paper absolute inset-0 opacity-60" aria-hidden />
         <div className="relative mx-auto max-w-[1480px] px-8 py-12">
           <div className="grid gap-12 lg:grid-cols-[1fr_460px]">
-            <HypothesisInput
-              onCompile={handleCompile}
-              isCompiling={isCompiling}
-            />
+            <div>
+              <HypothesisInput
+                onCompile={handleCompile}
+                isCompiling={isCompiling}
+              />
+              {error && (
+                <div className="mt-4 border-l-2 border-rust pl-3 font-display text-[14px] leading-[1.5] text-rust">
+                  {error}
+                </div>
+              )}
+            </div>
 
             {/* Sidebar manifesto */}
             <aside className="relative lg:border-l lg:border-ink/15 lg:pl-12">

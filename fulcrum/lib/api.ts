@@ -1,14 +1,22 @@
-// Frontend API client. Currently returns local mock data — when the
-// backend is ready, replace each function body with a fetch call to
-// the matching endpoint. Signatures mirror the API design in §20 of
-// the implementation plan exactly.
-
 import type { Workflow } from "@/types";
-import { HELA_TREHALOSE_WORKFLOW } from "./mock-workflow";
 
-const SIMULATED_DELAY = 1800; // ms — simulates the LLM compile call
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(detail || `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
 
 /**
  * POST /api/workflows/compile
@@ -18,22 +26,14 @@ export async function compileWorkflow(
   hypothesis: string,
   options: { useExternalRetrieval?: boolean } = {}
 ): Promise<Workflow> {
-  // TODO(backend): replace with:
-  //   const res = await fetch("/api/workflows/compile", {
-  //     method: "POST",
-  //     headers: { "Content-Type": "application/json" },
-  //     body: JSON.stringify({ hypothesis, use_external_retrieval: options.useExternalRetrieval }),
-  //   });
-  //   return (await res.json()).workflow;
-  await wait(SIMULATED_DELAY);
-  return {
-    ...HELA_TREHALOSE_WORKFLOW,
-    hypothesis,
-    structured_intent: {
-      ...HELA_TREHALOSE_WORKFLOW.structured_intent,
+  const result = await apiFetch<{ workflow: Workflow }>("/api/workflows/compile", {
+    method: "POST",
+    body: JSON.stringify({
       hypothesis,
-    },
-  };
+      use_external_retrieval: options.useExternalRetrieval ?? true,
+    }),
+  });
+  return result.workflow;
 }
 
 /**
@@ -46,35 +46,14 @@ export async function commitDecision(
   selectedOptionId: string,
   scientistNote?: string
 ): Promise<{ workflow: Workflow }> {
-  // TODO(backend): real implementation
-  await wait(700);
-  const updated: Workflow = JSON.parse(
-    JSON.stringify(HELA_TREHALOSE_WORKFLOW)
-  );
-  const step = updated.steps.find((s) => s.step_id === stepId);
-  if (step) {
-    step.selected_option_id = selectedOptionId;
-    step.scientist_note = scientistNote ?? null;
-    step.status = "complete";
-  }
-  updated.open_decision_count = updated.steps.filter(
-    (s) => s.status === "needs_user_choice"
-  ).length;
-  updated.trace.push({
-    event_id: `trace_${Date.now()}`,
-    event_type: "decision_committed",
-    summary: `Scientist committed decision for ${stepId}: ${selectedOptionId}`,
-    scientist_note: scientistNote,
-    affected_sections: ["protocol", "materials", "timeline", "validation"],
-    timestamp: new Date().toISOString(),
+  return apiFetch<{ workflow: Workflow }>(`/api/workflows/${workflowId}/decisions`, {
+    method: "POST",
+    body: JSON.stringify({
+      step_id: stepId,
+      selected_option_id: selectedOptionId,
+      scientist_note: scientistNote ?? null,
+    }),
   });
-  updated.trace.push({
-    event_id: `trace_${Date.now() + 1}`,
-    event_type: "workflow_recompiled",
-    summary: `Downstream sections recompiled. Protocol, materials, timeline, validation, and risks updated.`,
-    timestamp: new Date().toISOString(),
-  });
-  return { workflow: updated };
 }
 
 /**
@@ -88,6 +67,40 @@ export async function submitFeedback(
   correction: string,
   reason: string
 ): Promise<{ ok: true }> {
-  await wait(400);
-  return { ok: true };
+  return apiFetch<{ ok: true }>(`/api/workflows/${workflowId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({
+      step_id: stepId,
+      section,
+      rating,
+      correction,
+      reason,
+    }),
+  });
+}
+
+export async function ingestInternalKnowledge(): Promise<{
+  documents_ingested: number;
+  chunks_created: number;
+  stats: { chunks: number; sources: number; internal_chunks: number; external_chunks: number };
+}> {
+  return apiFetch("/api/knowledge/ingest-internal", { method: "POST" });
+}
+
+export async function uploadKnowledgeFiles(files: File[]): Promise<{
+  documents_ingested: number;
+  chunks_created: number;
+  stats: { chunks: number; sources: number; internal_chunks: number; external_chunks: number };
+}> {
+  const documents = await Promise.all(
+    files.map(async (file) => ({
+      filename: file.name,
+      text: await file.text(),
+    }))
+  );
+
+  return apiFetch("/api/knowledge/upload", {
+    method: "POST",
+    body: JSON.stringify({ documents }),
+  });
 }

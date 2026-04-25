@@ -1,0 +1,10 @@
+{
+  "run_id": "prior_run_001",
+  "experiment_type": "cell_cryopreservation",
+  "sop": "Viability Assay Runbook",
+  "modified_step": "Step 3",
+  "original": "Manual trypan blue counting as primary post-thaw readout",
+  "modification": "Used CellTiter-Glo 96-well plate reader assay as primary readout",
+  "reason": "Higher throughput and lower operator variability"
+}
+
