@@ -193,6 +193,7 @@ export interface TraceEvent {
     | "run_step_skipped"
     | "run_step_blocked"
     | "run_step_notes_updated"
+    | "run_step_attachment_added"
     | "run_completed";
   summary: string;
   scientist_note?: string;
@@ -261,7 +262,7 @@ export interface ExecutionRunStep {
   operator_note: string;
   deviation_note: string;
   actuals: Record<string, unknown>;
-  attachments: { name: string; url?: string; note?: string }[];
+  attachments: { attachment_id?: string; filename: string; name?: string; url?: string; note?: string; content_type?: string }[];
   source_refs: SourceRef[];
 }
 

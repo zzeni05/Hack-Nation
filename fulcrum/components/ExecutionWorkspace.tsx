@@ -12,6 +12,7 @@ interface Props {
   onStartStep: (stepId: string) => Promise<void>;
   onSaveStep: (stepId: string, operatorNote: string, deviationNote: string, actuals: Record<string, unknown>) => Promise<void>;
   onCompleteStep: (stepId: string, operatorNote: string, deviationNote: string, actuals: Record<string, unknown>) => Promise<void>;
+  onAddAttachment: (stepId: string, filename: string, note: string, contentType?: string) => Promise<void>;
   onCompleteRun: () => Promise<void>;
 }
 
@@ -22,12 +23,14 @@ export function ExecutionWorkspace({
   onStartStep,
   onSaveStep,
   onCompleteStep,
+  onAddAttachment,
   onCompleteRun,
 }: Props) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [operatorNote, setOperatorNote] = useState("");
   const [deviationNote, setDeviationNote] = useState("");
   const [actualsText, setActualsText] = useState("");
+  const [attachmentNote, setAttachmentNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   const executableSteps = workflow.steps.filter((step) => step.classification !== "decision_required");
@@ -201,6 +204,34 @@ export function ExecutionWorkspace({
                       placeholder={'{\n  "cell_count": "1.2e6",\n  "freezing_medium": "10% trehalose candidate"\n}'}
                     />
                   </label>
+                  <div className="border border-ink/15 bg-paper-deep/20 p-3">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">Attachments</div>
+                    <input
+                      type="file"
+                      className="mt-2 block w-full font-mono text-[11px]"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void withBusy(() => onAddAttachment(runStep.step_id, file.name, attachmentNote, file.type));
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                    <input
+                      value={attachmentNote}
+                      onChange={(event) => setAttachmentNote(event.target.value)}
+                      className="mt-2 w-full border border-ink/20 bg-paper px-2 py-1.5 font-display text-[13px] focus:outline-none"
+                      placeholder="Optional note for next attachment"
+                    />
+                    {runStep.attachments.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {runStep.attachments.map((attachment) => (
+                          <li key={attachment.attachment_id ?? attachment.filename} className="font-mono text-[10px] text-ink-mute">
+                            {attachment.filename ?? attachment.name}{attachment.note ? ` · ${attachment.note}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </div>
 

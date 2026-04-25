@@ -70,13 +70,17 @@ async def compile_from_protocol_candidates(
 
     external_protocols = []
     external_source_list = external_sources or []
-    for index, source in enumerate(external_source_list, start=1):
+    candidate_external_sources = [
+        source for source in external_source_list
+        if getattr(source, "candidate_role", "evidence") == "protocol_candidate"
+    ]
+    for index, source in enumerate(candidate_external_sources, start=1):
         await report_progress(
             progress,
             "parsing_external_protocol",
             f"Parsing external source: {getattr(source, 'title', 'external source')}",
             current=index,
-            total=len(external_source_list),
+            total=len(candidate_external_sources),
         )
         key = external_cache_key(
             getattr(source, "url", getattr(source, "title", "external")),
@@ -103,7 +107,7 @@ async def compile_from_protocol_candidates(
         total=len(protocols),
     )
     scored = await score_protocols(protocols, intent, hypothesis, prior_feedback or [], progress=progress)
-    base = scored[0]["protocol"] if scored else None
+    base = scored[0]["protocol"] if scored and scored[0]["fit_score"] >= 0.6 else None
     timestamp = now_iso()
 
     workflow = {
@@ -137,10 +141,15 @@ async def compile_from_protocol_candidates(
         workflow["steps"] = inject_gap_and_decision_steps(assembled_steps, scored[0], scored[1:], intent)
         workflow["sop_match"] = build_protocol_sop_match(scored[0])
     else:
+        best_reason = (
+            f"Best candidate was {scored[0]['protocol']['source_name']} at {round(scored[0]['fit_score'] * 100)}% readiness, below the 60% threshold for executable workflow assembly."
+            if scored else
+            "No uploaded internal SOP/runbook or external protocol source could be parsed into protocol candidates."
+        )
         workflow["sop_match"] = {
             "best_match_name": "No protocol candidate found",
             "match_confidence": 0.0,
-            "reason": "No uploaded internal SOP/runbook or external protocol source could be parsed into protocol candidates.",
+            "reason": best_reason,
             "exact_reuse_candidates": [],
             "adaptation_candidates": [],
             "missing_context": ["Upload SOPs/runbooks or enable external retrieval with protocol-like sources."],
@@ -160,7 +169,7 @@ async def compile_from_protocol_candidates(
             "event_type": "protocol_candidates_parsed",
             "summary": (
                 f"Parsed {len(protocols)} protocol candidates "
-                f"({len(external_protocols)} external) using {parser_mode} mode and selected the best base protocol."
+                f"({len(external_protocols)} external protocol-like candidates; {len(external_source_list)} external sources total) using {parser_mode} mode and selected the best base protocol."
             ),
             "affected_sections": ["workflow_steps", "sop_match"],
             "timestamp": timestamp,
@@ -706,7 +715,7 @@ def assemble_steps_from_base_protocol(
                 "order": idx,
                 "title": protocol_step["title"],
                 "classification": classification,
-                "status": "ready",
+                "status": "blocked" if classification == "missing_context" else "ready",
                 "source_refs": protocol_step["source_refs"],
                 "rationale": (
                     step_mapping.get("reason")

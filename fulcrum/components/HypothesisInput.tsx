@@ -2,17 +2,48 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, BookOpenText, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText, Search, Sparkles } from "lucide-react";
 import { SAMPLE_HYPOTHESES } from "@/lib/samples";
 import { KnowledgeUpload } from "@/components/KnowledgeUpload";
+import type { RetrievalOptions, RetrievalPreviewSource } from "@/lib/api";
 
 interface Props {
-  onCompile: (hypothesis: string) => void;
+  onCompile: (hypothesis: string, options: RetrievalOptions) => void;
+  onPreviewRetrieval: (hypothesis: string, options: RetrievalOptions) => Promise<RetrievalPreviewSource[]>;
   isCompiling: boolean;
 }
 
-export function HypothesisInput({ onCompile, isCompiling }: Props) {
+export function HypothesisInput({ onCompile, onPreviewRetrieval, isCompiling }: Props) {
   const [text, setText] = useState("");
+  const [maxSources, setMaxSources] = useState(12);
+  const [maxResultsPerQuery, setMaxResultsPerQuery] = useState(2);
+  const [maxQueries, setMaxQueries] = useState(10);
+  const [minQualityScore, setMinQualityScore] = useState(0.25);
+  const [searchDepth, setSearchDepth] = useState<"basic" | "advanced">("advanced");
+  const [previewSources, setPreviewSources] = useState<RetrievalPreviewSource[]>([]);
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
+  const retrievalOptions: RetrievalOptions = {
+    maxSources,
+    maxResultsPerQuery,
+    maxQueries,
+    minQualityScore,
+    searchDepth,
+    selectedExternalUrls: selectedUrls.size ? Array.from(selectedUrls) : undefined,
+  };
+
+  async function preview() {
+    if (!text.trim() || isPreviewing) return;
+    setIsPreviewing(true);
+    try {
+      const sources = await onPreviewRetrieval(text.trim(), retrievalOptions);
+      setPreviewSources(sources);
+      setSelectedUrls(new Set(sources.filter((s) => s.candidate_role === "protocol_candidate").map((s) => s.url)));
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
 
   return (
     <div className="relative">
@@ -62,7 +93,7 @@ export function HypothesisInput({ onCompile, isCompiling }: Props) {
         {/* Action row */}
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
-            onClick={() => text.trim() && onCompile(text.trim())}
+            onClick={() => text.trim() && onCompile(text.trim(), retrievalOptions)}
             disabled={!text.trim() || isCompiling}
             className="group relative flex items-center gap-3 bg-ink px-5 py-3.5 font-mono text-[11px] uppercase tracking-[0.18em] text-paper transition-colors hover:bg-rust disabled:opacity-30"
           >
@@ -82,6 +113,14 @@ export function HypothesisInput({ onCompile, isCompiling }: Props) {
               </>
             )}
           </button>
+          <button
+            onClick={preview}
+            disabled={!text.trim() || isCompiling || isPreviewing}
+            className="inline-flex items-center gap-2 border border-ink/30 px-4 py-3.5 font-mono text-[11px] uppercase tracking-[0.18em] text-ink transition-colors hover:border-rust hover:text-rust disabled:opacity-30"
+          >
+            <Search className="h-3.5 w-3.5" strokeWidth={1.5} />
+            {isPreviewing ? "Previewing sources" : "Preview retrieval"}
+          </button>
 
           <div className="ml-auto flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
             <BookOpenText className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -91,6 +130,61 @@ export function HypothesisInput({ onCompile, isCompiling }: Props) {
       </div>
 
       <KnowledgeUpload disabled={isCompiling} />
+
+      <div className="mt-5 border border-ink/20 bg-paper-deep/20 p-4">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+          External retrieval config
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-5">
+          <NumberControl label="Sources" value={maxSources} min={1} max={40} onChange={setMaxSources} />
+          <NumberControl label="Queries" value={maxQueries} min={1} max={10} onChange={setMaxQueries} />
+          <NumberControl label="Per query" value={maxResultsPerQuery} min={1} max={8} onChange={setMaxResultsPerQuery} />
+          <NumberControl label="Min quality" value={Math.round(minQualityScore * 100)} min={0} max={90} onChange={(v) => setMinQualityScore(v / 100)} />
+          <label className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+            Depth
+            <select
+              value={searchDepth}
+              onChange={(event) => setSearchDepth(event.target.value as "basic" | "advanced")}
+              className="mt-1 w-full border border-ink/20 bg-paper px-2 py-2 text-ink"
+            >
+              <option value="advanced">Advanced</option>
+              <option value="basic">Basic</option>
+            </select>
+          </label>
+        </div>
+        {previewSources.length > 0 && (
+          <div className="mt-4 max-h-[300px] overflow-auto border-t border-rule pt-3">
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+              Review sources · {selectedUrls.size} selected for compile
+            </div>
+            <div className="space-y-2">
+              {previewSources.map((source) => (
+                <label key={source.url} className="grid cursor-pointer grid-cols-[20px_1fr_70px] gap-2 border border-ink/10 bg-paper/40 p-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedUrls.has(source.url)}
+                    onChange={(event) => {
+                      const next = new Set(selectedUrls);
+                      if (event.target.checked) next.add(source.url);
+                      else next.delete(source.url);
+                      setSelectedUrls(next);
+                    }}
+                  />
+                  <span>
+                    <span className="block font-display text-[13px] leading-tight">{source.title}</span>
+                    <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-ink-mute">
+                      {source.domain} · {source.candidate_role} · {source.quality_reasons.slice(0, 2).join("; ")}
+                    </span>
+                  </span>
+                  <span className="text-right font-mono text-[10px] tabular-nums text-rust">
+                    {Math.round(source.quality_score * 100)}%
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Sample hypotheses */}
       <div className="mt-10">
@@ -134,5 +228,33 @@ export function HypothesisInput({ onCompile, isCompiling }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+function NumberControl({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+      {label}
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value))))}
+        className="mt-1 w-full border border-ink/20 bg-paper px-2 py-2 text-ink"
+      />
+    </label>
   );
 }

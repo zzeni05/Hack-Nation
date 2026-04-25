@@ -51,13 +51,19 @@ function formatApiError(status: number, body: string): string {
  */
 export async function compileWorkflow(
   hypothesis: string,
-  options: { useExternalRetrieval?: boolean } = {}
+  options: RetrievalOptions = {}
 ): Promise<Workflow> {
   const result = await apiFetch<{ workflow: Workflow }>("/api/workflows/compile", {
     method: "POST",
     body: JSON.stringify({
       hypothesis,
       use_external_retrieval: options.useExternalRetrieval ?? true,
+      tavily_max_results_per_query: options.maxResultsPerQuery ?? 2,
+      tavily_max_sources: options.maxSources ?? 12,
+      tavily_max_queries: options.maxQueries ?? 10,
+      tavily_search_depth: options.searchDepth ?? "advanced",
+      min_external_quality_score: options.minQualityScore ?? 0.25,
+      selected_external_urls: options.selectedExternalUrls ?? null,
     }),
   });
   return result.workflow;
@@ -82,6 +88,7 @@ export async function compileWorkflowStream(
   hypothesis: string,
   options: {
     useExternalRetrieval?: boolean;
+    retrieval?: RetrievalOptions;
     onEvent?: (event: CompileProgressEvent) => void;
   } = {}
 ): Promise<Workflow> {
@@ -91,6 +98,12 @@ export async function compileWorkflowStream(
     body: JSON.stringify({
       hypothesis,
       use_external_retrieval: options.useExternalRetrieval ?? true,
+      tavily_max_results_per_query: options.retrieval?.maxResultsPerQuery ?? 2,
+      tavily_max_sources: options.retrieval?.maxSources ?? 12,
+      tavily_max_queries: options.retrieval?.maxQueries ?? 10,
+      tavily_search_depth: options.retrieval?.searchDepth ?? "advanced",
+      min_external_quality_score: options.retrieval?.minQualityScore ?? 0.25,
+      selected_external_urls: options.retrieval?.selectedExternalUrls ?? null,
     }),
   });
 
@@ -126,6 +139,47 @@ export async function compileWorkflowStream(
   }
 
   throw new Error("Compile stream ended before returning a workflow");
+}
+
+export interface RetrievalOptions {
+  useExternalRetrieval?: boolean;
+  maxResultsPerQuery?: number;
+  maxSources?: number;
+  maxQueries?: number;
+  searchDepth?: "basic" | "advanced";
+  minQualityScore?: number;
+  selectedExternalUrls?: string[];
+}
+
+export interface RetrievalPreviewSource {
+  title: string;
+  url: string;
+  source_name: string;
+  source_type: string;
+  domain: string;
+  query: string;
+  content_quality: string;
+  quality_score: number;
+  quality_reasons: string[];
+  candidate_role: "protocol_candidate" | "evidence";
+  content_preview: string;
+}
+
+export async function previewRetrieval(
+  hypothesis: string,
+  options: RetrievalOptions
+): Promise<{ sources: RetrievalPreviewSource[]; rejected_sources: RetrievalPreviewSource[]; queries: string[] }> {
+  return apiFetch("/api/retrieval/preview", {
+    method: "POST",
+    body: JSON.stringify({
+      hypothesis,
+      tavily_max_results_per_query: options.maxResultsPerQuery ?? 2,
+      tavily_max_sources: options.maxSources ?? 12,
+      tavily_max_queries: options.maxQueries ?? 10,
+      tavily_search_depth: options.searchDepth ?? "advanced",
+      min_external_quality_score: options.minQualityScore ?? 0.25,
+    }),
+  });
 }
 
 function formatStreamError(detail: unknown, status?: number): string {
@@ -281,6 +335,22 @@ export async function saveRunStepNotes(
 export async function completeExecutionRun(runId: string): Promise<ExecutionRun> {
   const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/complete`, {
     method: "POST",
+  });
+  return result.run;
+}
+
+export async function addRunStepAttachment(
+  runId: string,
+  stepId: string,
+  payload: { filename: string; note?: string; contentType?: string }
+): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/steps/${stepId}/attachments`, {
+    method: "POST",
+    body: JSON.stringify({
+      filename: payload.filename,
+      note: payload.note ?? null,
+      content_type: payload.contentType ?? null,
+    }),
   });
   return result.run;
 }

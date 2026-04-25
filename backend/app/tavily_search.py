@@ -25,6 +25,19 @@ class ExternalSource:
     domain: str
     query: str
     content_quality: str
+    quality_score: float = 0.0
+    quality_reasons: list[str] | None = None
+    candidate_role: str = "evidence"
+
+
+@dataclass
+class RetrievalConfig:
+    max_results_per_query: int = 2
+    max_sources: int = 12
+    max_queries: int = 10
+    search_depth: str = "advanced"
+    include_domains: list[str] | None = None
+    min_quality_score: float = 0.25
 
 
 def generate_tavily_queries(intent: dict[str, Any]) -> list[str]:
@@ -59,14 +72,19 @@ def generate_tavily_queries(intent: dict[str, Any]) -> list[str]:
 async def discover_external_sources(
     intent: dict[str, Any],
     *,
-    max_results_per_query: int = 2,
+    config: RetrievalConfig | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> list[ExternalSource]:
     if not settings.tavily_api_key:
         return []
 
+    config = config or RetrievalConfig()
     sources: list[ExternalSource] = []
     queries = generate_tavily_queries(intent)
+    if config.include_domains:
+        allowed = tuple(config.include_domains)
+        queries = [query for query in queries if any(domain in query for domain in allowed)]
+    queries = queries[: max(1, config.max_queries)]
     async with httpx.AsyncClient(timeout=20) as client:
         for index, query in enumerate(queries, start=1):
             await report_progress(
@@ -83,8 +101,8 @@ async def discover_external_sources(
                 json={
                     "api_key": settings.tavily_api_key,
                     "query": query,
-                    "search_depth": "advanced",
-                    "max_results": max_results_per_query,
+                    "search_depth": config.search_depth,
+                    "max_results": max(1, config.max_results_per_query),
                     "include_raw_content": True,
                 },
             )
@@ -93,6 +111,7 @@ async def discover_external_sources(
             for result in payload.get("results", []):
                 source = normalize_tavily_result(result, query)
                 if source and len(source.content.strip()) > 120:
+                    score_external_source(source)
                     sources.append(source)
             await report_progress(
                 progress,
@@ -104,7 +123,9 @@ async def discover_external_sources(
                 sources_found=len(dedupe_sources(sources)),
             )
 
-    return dedupe_sources(sources)[:12]
+    unique = dedupe_sources(sources)
+    unique.sort(key=lambda source: source.quality_score, reverse=True)
+    return unique[: max(1, config.max_sources)]
 
 
 async def report_progress(
@@ -135,6 +156,53 @@ def normalize_tavily_result(result: dict[str, Any], query: str) -> ExternalSourc
         query=query,
         content_quality="raw_content" if result.get("raw_content") else "snippet_only",
     )
+
+
+def score_external_source(source: ExternalSource) -> None:
+    text = source.content.lower()
+    reasons: list[str] = []
+    score = 0.0
+    if source.domain.endswith(("protocols.io", "bio-protocol.org", "openwetware.org", "jove.com")):
+        score += 0.25
+        reasons.append("known protocol domain")
+    if source.source_type == "supplier_doc":
+        score += 0.18
+        reasons.append("supplier/manufacturer documentation")
+    procedural_terms = ["protocol", "procedure", "materials", "reagents", "step", "incubat", "centrifug", "wash", "assay", "thaw", "freeze"]
+    hits = [term for term in procedural_terms if term in text]
+    score += min(len(hits) * 0.06, 0.36)
+    if hits:
+        reasons.append(f"procedural terms: {', '.join(hits[:4])}")
+    if any(marker in text for marker in ["1.", "2.", "step 1", "day 1", "materials and reagents"]):
+        score += 0.16
+        reasons.append("step-like structure detected")
+    if source.content_quality == "raw_content":
+        score += 0.08
+        reasons.append("raw page content available")
+    if len(source.content) > 1500:
+        score += 0.08
+        reasons.append("substantial content")
+    source.quality_score = round(min(score, 1.0), 3)
+    source.quality_reasons = reasons
+    source.candidate_role = "protocol_candidate" if source.quality_score >= 0.35 and (
+        source.source_type in {"external_protocol", "supplier_doc"} or "protocol" in text
+    ) else "evidence"
+
+
+def source_to_dict(source: ExternalSource) -> dict[str, Any]:
+    return {
+        "title": source.title,
+        "url": source.url,
+        "source_name": source.source_name,
+        "source_type": source.source_type,
+        "domain": source.domain,
+        "query": source.query,
+        "content_quality": source.content_quality,
+        "quality_score": source.quality_score,
+        "quality_reasons": source.quality_reasons or [],
+        "candidate_role": source.candidate_role,
+        "content_preview": source.content[:700],
+    }
 
 
 def dedupe_sources(sources: list[ExternalSource]) -> list[ExternalSource]:

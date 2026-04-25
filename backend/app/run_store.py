@@ -10,6 +10,7 @@ from uuid import uuid4
 from app.config import settings
 from app.intent import now_iso
 from app.store import _read_json, _write_json, get_workflow, save_workflow
+from app.vector_store import upsert_document
 
 
 def create_run(workflow_id: str) -> dict[str, Any] | None:
@@ -157,6 +158,42 @@ def update_step_notes(
     return run
 
 
+def add_step_attachment(
+    run_id: str,
+    step_id: str,
+    *,
+    filename: str,
+    note: str | None = None,
+    content_type: str | None = None,
+) -> dict[str, Any] | None:
+    run = get_run(run_id)
+    if run is None:
+        return None
+    step = find_run_step(run, step_id)
+    if step is None:
+        return None
+    attachment = {
+        "attachment_id": f"att_{uuid4().hex[:8]}",
+        "filename": filename,
+        "note": note or "",
+        "content_type": content_type or "unknown",
+        "created_at": now_iso(),
+    }
+    step.setdefault("attachments", []).append(attachment)
+    run["events"].append(
+        build_run_event(
+            "step_attachment_added",
+            f"Attachment {filename} added to step {step_id}.",
+            step_id=step_id,
+            filename=filename,
+            operator_note=note,
+        )
+    )
+    save_run(run)
+    append_workflow_trace_for_run(run, "run_step_attachment_added", f"Attachment {filename} added to step {step_id}.", note)
+    return run
+
+
 def complete_run(run_id: str) -> dict[str, Any] | None:
     run = get_run(run_id)
     if run is None:
@@ -167,8 +204,45 @@ def complete_run(run_id: str) -> dict[str, Any] | None:
     run["current_step_id"] = None
     run["events"].append(build_run_event("run_completed", "Execution run completed."))
     save_run(run)
+    index_completed_run_memory(run)
     append_workflow_trace_for_run(run, "run_completed", f"Execution run {run_id} completed.", None)
     return run
+
+
+def index_completed_run_memory(run: dict[str, Any]) -> None:
+    workflow = get_workflow(run["workflow_id"])
+    experiment_type = (workflow or {}).get("structured_intent", {}).get("experiment_type", "unknown")
+    text_parts = [
+        f"Completed execution run {run['run_id']} for workflow {run['workflow_id']}.",
+        f"Run status: {run.get('status')}.",
+    ]
+    for step in run.get("steps", []):
+        text_parts.append(
+            "\n".join(
+                [
+                    f"Step {step.get('order')}: {step.get('title')}",
+                    f"Status: {step.get('status')}",
+                    f"Operator note: {step.get('operator_note') or 'none'}",
+                    f"Deviation note: {step.get('deviation_note') or 'none'}",
+                    f"Actuals: {step.get('actuals') or {}}",
+                    f"Attachments: {step.get('attachments') or []}",
+                ]
+            )
+        )
+    upsert_document(
+        f"Execution run {run['run_id']}",
+        "\n\n".join(text_parts),
+        {
+            "source_type": "prior_run",
+            "source_origin": "prior_run",
+            "is_user_provided": True,
+            "priority": "internal",
+            "path": f"run://{run['run_id']}",
+            "experiment_type": experiment_type,
+            "workflow_id": run["workflow_id"],
+            "run_id": run["run_id"],
+        },
+    )
 
 
 def find_run_step(run: dict[str, Any], step_id: str) -> dict[str, Any] | None:

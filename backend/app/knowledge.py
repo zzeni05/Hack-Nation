@@ -149,7 +149,7 @@ def retrieve_context(query: str) -> dict[str, Any]:
     internal = [
         item for item in results
         if item["metadata"].get("priority") == "internal"
-        and item["metadata"].get("source_origin") == "uploaded_internal"
+        and item["metadata"].get("source_origin") in {"uploaded_internal", "prior_run"}
     ][:10]
     external = [item for item in results if item["metadata"].get("priority") == "external"][:6]
     return {"internal": internal, "external": external, "stats": stats()}

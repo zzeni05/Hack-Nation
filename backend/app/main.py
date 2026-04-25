@@ -18,10 +18,10 @@ from app.intent import extract_structured_intent
 from app.knowledge import ingest_external_sources, ingest_uploaded_documents, retrieve_context
 from app.llm import complete, stream
 from app.protocol_cache import find_protocol_step_by_chunk_id
-from app.run_store import complete_run, create_run, get_run, update_step_notes, update_step_status
+from app.run_store import add_step_attachment, complete_run, create_run, get_run, update_step_notes, update_step_status
 from app.sop_improvement import generate_sop_recommendations
 from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
-from app.tavily_search import discover_external_sources, generate_tavily_queries
+from app.tavily_search import RetrievalConfig, discover_external_sources, generate_tavily_queries, source_to_dict
 from app.vector_store import get_chunk, stats as vector_stats
 
 app = FastAPI(title="Hackathon Backend", version="0.1.0")
@@ -163,6 +163,13 @@ async def intent(req: IntentRequest):
 class CompileWorkflowRequest(BaseModel):
     hypothesis: str
     use_external_retrieval: bool = True
+    tavily_max_results_per_query: int = 2
+    tavily_max_sources: int = 12
+    tavily_max_queries: int = 10
+    tavily_search_depth: str = "advanced"
+    tavily_include_domains: list[str] | None = None
+    min_external_quality_score: float = 0.25
+    selected_external_urls: list[str] | None = None
 
 
 @app.post("/api/workflows/compile")
@@ -184,7 +191,22 @@ async def compile_workflow_core(req: CompileWorkflowRequest, progress=None):
         if req.use_external_retrieval:
             stage = "discover_external_sources_tavily"
             await emit_progress(progress, stage, "Running targeted Tavily searches across protocol and supplier sources")
-            external_sources = await discover_external_sources(structured_intent, progress=progress)
+            retrieval_config = RetrievalConfig(
+                max_results_per_query=max(1, min(req.tavily_max_results_per_query, 8)),
+                max_sources=max(1, min(req.tavily_max_sources, 40)),
+                max_queries=max(1, min(req.tavily_max_queries, 10)),
+                search_depth=req.tavily_search_depth if req.tavily_search_depth in {"basic", "advanced"} else "advanced",
+                include_domains=req.tavily_include_domains,
+                min_quality_score=max(0.0, min(req.min_external_quality_score, 1.0)),
+            )
+            external_sources = await discover_external_sources(structured_intent, config=retrieval_config, progress=progress)
+            external_sources = [
+                source for source in external_sources
+                if source.quality_score >= retrieval_config.min_quality_score
+            ]
+            if req.selected_external_urls:
+                selected = set(req.selected_external_urls)
+                external_sources = [source for source in external_sources if source.url in selected]
             external_source_count = len(external_sources)
             stage = "ingest_external_sources"
             await emit_progress(progress, stage, f"Embedding {external_source_count} retrieved external references locally")
@@ -313,6 +335,38 @@ async def retrieval_queries(req: IntentRequest):
     }
 
 
+class RetrievalPreviewRequest(BaseModel):
+    hypothesis: str
+    tavily_max_results_per_query: int = 2
+    tavily_max_sources: int = 12
+    tavily_max_queries: int = 10
+    tavily_search_depth: str = "advanced"
+    tavily_include_domains: list[str] | None = None
+    min_external_quality_score: float = 0.25
+
+
+@app.post("/api/retrieval/preview")
+async def retrieval_preview(req: RetrievalPreviewRequest):
+    structured_intent = extract_structured_intent(req.hypothesis)
+    config = RetrievalConfig(
+        max_results_per_query=max(1, min(req.tavily_max_results_per_query, 8)),
+        max_sources=max(1, min(req.tavily_max_sources, 40)),
+        max_queries=max(1, min(req.tavily_max_queries, 10)),
+        search_depth=req.tavily_search_depth if req.tavily_search_depth in {"basic", "advanced"} else "advanced",
+        include_domains=req.tavily_include_domains,
+        min_quality_score=max(0.0, min(req.min_external_quality_score, 1.0)),
+    )
+    sources = await discover_external_sources(structured_intent, config=config)
+    kept = [source for source in sources if source.quality_score >= config.min_quality_score]
+    return {
+        "structured_intent": structured_intent,
+        "queries": generate_tavily_queries(structured_intent)[: config.max_queries],
+        "sources": [source_to_dict(source) for source in kept],
+        "rejected_sources": [source_to_dict(source) for source in sources if source.quality_score < config.min_quality_score],
+        "config": config.__dict__,
+    }
+
+
 class CommitDecisionRequest(BaseModel):
     step_id: str
     selected_option_id: str
@@ -426,6 +480,12 @@ class RunStepUpdateRequest(BaseModel):
     actuals: dict[str, object] | None = None
 
 
+class RunStepAttachmentRequest(BaseModel):
+    filename: str
+    note: str | None = None
+    content_type: str | None = None
+
+
 @app.post("/api/runs/{run_id}/steps/{step_id}/start")
 async def run_step_start(run_id: str, step_id: str, req: RunStepUpdateRequest | None = None):
     req = req or RunStepUpdateRequest()
@@ -480,6 +540,20 @@ async def run_step_notes(run_id: str, step_id: str, req: RunStepUpdateRequest):
         operator_note=req.operator_note,
         deviation_note=req.deviation_note,
         actuals=req.actuals,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run or step not found")
+    return {"run": run}
+
+
+@app.post("/api/runs/{run_id}/steps/{step_id}/attachments")
+async def run_step_attachment(run_id: str, step_id: str, req: RunStepAttachmentRequest):
+    run = add_step_attachment(
+        run_id,
+        step_id,
+        filename=req.filename,
+        note=req.note,
+        content_type=req.content_type,
     )
     if run is None:
         raise HTTPException(status_code=404, detail="Run or step not found")

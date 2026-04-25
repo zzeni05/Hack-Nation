@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { ExecutionRun, Workflow } from "@/types";
 import {
   compileWorkflowStream,
+  addRunStepAttachment,
   commitDecision,
   completeExecutionRun,
   completeRunStep,
@@ -13,8 +14,10 @@ import {
   saveRunStepNotes,
   startRunStep,
   submitFeedback,
+  previewRetrieval,
   type CompileProgressEvent,
 } from "@/lib/api";
+import type { RetrievalOptions, RetrievalPreviewSource } from "@/lib/api";
 import { Masthead } from "@/components/Masthead";
 import { HypothesisInput } from "@/components/HypothesisInput";
 import { CompilingOverlay } from "@/components/CompilingOverlay";
@@ -40,7 +43,7 @@ export default function Home() {
   const selectedStep =
     workflow?.steps.find((s) => s.step_id === selectedStepId) ?? null;
 
-  async function handleCompile(hypothesis: string) {
+  async function handleCompile(hypothesis: string, retrieval: RetrievalOptions) {
     setIsCompiling(true);
     setSelectedStepId(null);
     setError(null);
@@ -48,6 +51,7 @@ export default function Home() {
     try {
       const wf = await compileWorkflowStream(hypothesis, {
         useExternalRetrieval: true,
+        retrieval,
         onEvent: (event) => setCompileEvents((events) => [...events.slice(-80), event]),
       });
       setWorkflow(wf);
@@ -63,6 +67,11 @@ export default function Home() {
     } finally {
       setIsCompiling(false);
     }
+  }
+
+  async function handlePreviewRetrieval(hypothesis: string, retrieval: RetrievalOptions): Promise<RetrievalPreviewSource[]> {
+    const result = await previewRetrieval(hypothesis, retrieval);
+    return result.sources;
   }
 
   async function handleCommitDecision(
@@ -139,6 +148,11 @@ export default function Home() {
     setExecutionRun(await completeRunStep(executionRun.run_id, stepId, { operatorNote, deviationNote, actuals }));
   }
 
+  async function handleAddRunAttachment(stepId: string, filename: string, note: string, contentType?: string) {
+    if (!executionRun) return;
+    setExecutionRun(await addRunStepAttachment(executionRun.run_id, stepId, { filename, note, contentType }));
+  }
+
   async function handleCompleteRun() {
     if (!executionRun) return;
     setExecutionRun(await completeExecutionRun(executionRun.run_id));
@@ -158,6 +172,7 @@ export default function Home() {
             <div>
               <HypothesisInput
                 onCompile={handleCompile}
+                onPreviewRetrieval={handlePreviewRetrieval}
                 isCompiling={isCompiling}
               />
               {error && (
@@ -280,6 +295,7 @@ export default function Home() {
                     onStartStep={handleStartRunStep}
                     onSaveStep={handleSaveRunStep}
                     onCompleteStep={handleCompleteRunStep}
+                    onAddAttachment={handleAddRunAttachment}
                     onCompleteRun={handleCompleteRun}
                   />
 

@@ -40,6 +40,7 @@ const EVENT_META: Record<
   run_step_skipped: { icon: GitBranch, color: "text-ochre", label: "Skipped" },
   run_step_blocked: { icon: GitBranch, color: "text-rust", label: "Blocked" },
   run_step_notes_updated: { icon: MessageSquare, color: "text-ink-soft", label: "Run note" },
+  run_step_attachment_added: { icon: FileText, color: "text-ink-soft", label: "File" },
   run_completed: { icon: CheckCircle2, color: "text-moss", label: "Run done" },
 };
 
