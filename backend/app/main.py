@@ -9,9 +9,8 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
-from app.compiler import commit_decision as compile_committed_decision
-from app.compiler import extract_structured_intent
-from app.compiler_v2 import compile_from_protocol_candidates
+from app.compiler_v2 import commit_decision_source_grounded, compile_from_protocol_candidates
+from app.intent import extract_structured_intent
 from app.knowledge import (
     ingest_external_sources,
     ingest_internal_knowledge,
@@ -19,10 +18,11 @@ from app.knowledge import (
     retrieve_context,
 )
 from app.llm import complete, stream
+from app.protocol_cache import find_protocol_step_by_chunk_id
 from app.sop_improvement import generate_sop_recommendations
 from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
 from app.tavily_search import discover_external_sources, generate_tavily_queries
-from app.vector_store import stats as vector_stats
+from app.vector_store import get_chunk, stats as vector_stats
 
 app = FastAPI(title="Hackathon Backend", version="0.1.0")
 
@@ -146,6 +146,7 @@ async def workflows_compile(req: CompileWorkflowRequest):
     structured_intent = extract_structured_intent(req.hypothesis)
     external_ingest_result = None
     external_source_count = 0
+    external_sources = []
     if req.use_external_retrieval:
         external_sources = await discover_external_sources(structured_intent)
         external_source_count = len(external_sources)
@@ -163,6 +164,7 @@ async def workflows_compile(req: CompileWorkflowRequest):
         context,
         prior_feedback=feedback,
         sop_recommendations=generate_sop_recommendations(),
+        external_sources=external_sources,
     )
     if external_ingest_result is not None:
         workflow["trace"].insert(
@@ -202,7 +204,7 @@ async def workflows_commit_decision(workflow_id: str, req: CommitDecisionRequest
     workflow = get_workflow(workflow_id)
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    updated = compile_committed_decision(
+    updated = commit_decision_source_grounded(
         workflow,
         req.step_id,
         req.selected_option_id,
@@ -288,6 +290,21 @@ async def workflows_trace(workflow_id: str):
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return {"trace": workflow["trace"]}
+
+
+@app.get("/api/knowledge/chunks/{chunk_id}")
+async def knowledge_chunk(chunk_id: str):
+    chunk = get_chunk(chunk_id)
+    if chunk is None:
+        protocol_step = find_protocol_step_by_chunk_id(chunk_id)
+        if protocol_step is not None:
+            return protocol_step
+        raise HTTPException(status_code=404, detail="Chunk not found")
+    return {
+        "chunk_id": chunk.get("id"),
+        "text": chunk.get("document"),
+        "metadata": chunk.get("metadata"),
+    }
 
 
 @app.get("/api/sop-improvements")

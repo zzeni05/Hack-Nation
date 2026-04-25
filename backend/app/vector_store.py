@@ -141,7 +141,14 @@ def stats() -> dict[str, Any]:
     }
 
 
+def get_chunk(chunk_id: str) -> dict[str, Any] | None:
+    for item in load_index():
+        metadata = item.get("metadata", {})
+        if item.get("id") == chunk_id or metadata.get("chunk_id") == chunk_id:
+            return item
+    return None
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", value.lower()).strip("_")
     return slug[:80] or "document"
-

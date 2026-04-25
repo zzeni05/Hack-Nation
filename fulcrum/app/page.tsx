@@ -254,7 +254,32 @@ export default function Home() {
                         <span>{workflow.protocol_basis.candidate_count} candidates</span>
                         <span>{workflow.protocol_basis.imported_steps} imported</span>
                         <span>{workflow.protocol_basis.gap_filled_steps} gap-filled</span>
+                        <span>{workflow.protocol_basis.parser_mode ?? "unknown"}</span>
+                        <span>{workflow.protocol_basis.cache_hit ? "cache hit" : "cache miss"}</span>
                       </div>
+                    </section>
+                  )}
+                  {workflow.validation_report && (
+                    <section className="border border-ink/20 bg-paper-deep/20 p-4">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+                        Provenance validation
+                      </div>
+                      <div className="mt-2 font-display text-[18px] leading-tight">
+                        {workflow.validation_report.ok ? "Passed" : "Needs review"}
+                      </div>
+                      {workflow.validation_report.issues.length > 0 && (
+                        <ul className="mt-3 space-y-2">
+                          {workflow.validation_report.issues.slice(0, 4).map((issue, i) => (
+                            <li key={i} className="font-display text-[12px] leading-[1.4] text-ink-soft">
+                              <span className={issue.severity === "error" ? "text-rust" : "text-ochre"}>
+                                {issue.severity}
+                              </span>
+                              {" · "}
+                              {issue.message}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </section>
                   )}
                   <ExecutionTrace trace={workflow.trace} />

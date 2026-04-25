@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, GitBranch, BookOpen, AlertTriangle, Star, Send, FileEdit, MessageSquare } from "lucide-react";
 import type { WorkflowStep } from "@/types";
 import { CLASSIFICATION_META, classNames } from "@/lib/display";
+import { getKnowledgeChunk } from "@/lib/api";
 
 interface Props {
   step: WorkflowStep | null;
@@ -47,6 +48,8 @@ export function StepInspector({
   const [feedbackRating, setFeedbackRating] = useState(4);
   const [feedbackCorrection, setFeedbackCorrection] = useState("");
   const [feedbackReason, setFeedbackReason] = useState("");
+  const [openChunkId, setOpenChunkId] = useState<string | null>(null);
+  const [chunkText, setChunkText] = useState<string>("");
 
   useEffect(() => {
     if (step?.classification === "decision_required") {
@@ -64,7 +67,24 @@ export function StepInspector({
     setFeedbackRating(4);
     setFeedbackCorrection("");
     setFeedbackReason("");
+    setOpenChunkId(null);
+    setChunkText("");
   }, [step?.step_id]);
+
+  async function toggleChunk(chunkId: string) {
+    if (openChunkId === chunkId) {
+      setOpenChunkId(null);
+      setChunkText("");
+      return;
+    }
+    setOpenChunkId(chunkId);
+    try {
+      const chunk = await getKnowledgeChunk(chunkId);
+      setChunkText(chunk.text);
+    } catch {
+      setChunkText("Full chunk text is not available for this protocol-derived source reference yet.");
+    }
+  }
 
   return (
     <AnimatePresence>
@@ -432,9 +452,19 @@ export function StepInspector({
                         {ref.source_type.replace(/_/g, " ")}
                       </span>
                       <span className="font-display text-[14px] text-ink">
-                        {ref.source_name}
+                        <button
+                          onClick={() => toggleChunk(ref.chunk_id)}
+                          className="text-left hover:text-rust"
+                        >
+                          {ref.source_name}
+                        </button>
                         {ref.section && (
                           <span className="font-mono text-[10px] text-ink-mute"> · {ref.section}</span>
+                        )}
+                        {openChunkId === ref.chunk_id && (
+                          <span className="mt-2 block border-l border-ink/30 pl-3 font-display text-[12px] leading-[1.45] text-ink-soft">
+                            {chunkText}
+                          </span>
                         )}
                       </span>
                     </li>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from typing import Any
 
 from app.config import settings
@@ -103,6 +104,138 @@ async def parse_protocol_file_llm(path, source_type: str) -> dict[str, Any]:
     }
 
 
+async def parse_external_source_llm(source: Any, experiment_type: str) -> dict[str, Any]:
+    """Parse a retrieved external source into a protocol candidate."""
+    source_name = getattr(source, "title", "External source")
+    source_type = getattr(source, "source_type", "external_protocol")
+    content = getattr(source, "content", "")
+    url = getattr(source, "url", None)
+
+    if not llm_available():
+        return parse_external_source_heuristic(source_name, source_type, content, url, experiment_type)
+
+    result = await extract_steps_from_section(
+        {
+            "source_name": source_name,
+            "source_type": source_type,
+            "source_url": url,
+        },
+        source_name,
+        content[:6000],
+    )
+    steps = []
+    for order, extracted in enumerate(result.get("steps", []), start=1):
+        steps.append(
+            {
+                "step_id": f"{slugify(source_name)}_external_s{order:03d}",
+                "order": order,
+                "title": extracted.get("title") or source_name,
+                "section": source_name,
+                "operation": extracted.get("operation") or slugify(source_name),
+                "text": extracted.get("text") or content[:1200],
+                "parameters": extracted.get("parameters") or {},
+                "materials": extracted.get("materials") or [],
+                "equipment": extracted.get("equipment") or [],
+                "constraints": extracted.get("constraints") or [],
+                "safety_notes": extracted.get("safety_notes") or [],
+                "success_checks": extracted.get("success_checks") or [],
+                "inputs": extracted.get("inputs") or [],
+                "outputs": extracted.get("outputs") or [],
+                "source_refs": [
+                    {
+                        "chunk_id": f"external_protocol_{slugify(source_name)}_s{order:03d}",
+                        "source_name": source_name,
+                        "source_type": source_type,
+                        "source_url": url,
+                        "section": source_name,
+                    }
+                ],
+            }
+        )
+
+    if not steps:
+        return parse_external_source_heuristic(source_name, source_type, content, url, experiment_type)
+
+    return {
+        "protocol_id": f"external_protocol_{slugify(source_name)}",
+        "source_name": source_name,
+        "source_type": source_type,
+        "domain": experiment_type,
+        "steps": steps,
+        "raw_text": content,
+        "evidence_claims": result.get("evidence_claims", []),
+        "step_source_capable": result.get("source_class") == "step_source_capable",
+        "parser_mode": "llm",
+        "source_url": url,
+    }
+
+
+def parse_external_source_heuristic(
+    source_name: str,
+    source_type: str,
+    content: str,
+    url: str | None,
+    experiment_type: str,
+) -> dict[str, Any]:
+    sentences = [sentence.strip() for sentence in content.replace("\n", " ").split(".") if len(sentence.strip()) > 25]
+    steps = []
+    for order, sentence in enumerate(sentences[:6], start=1):
+        steps.append(
+            {
+                "step_id": f"{slugify(source_name)}_external_h{order:03d}",
+                "order": order,
+                "title": sentence[:90],
+                "section": source_name,
+                "operation": infer_external_operation(sentence),
+                "text": sentence + ".",
+                "parameters": {},
+                "materials": [],
+                "equipment": [],
+                "constraints": [],
+                "safety_notes": [],
+                "success_checks": [],
+                "inputs": [],
+                "outputs": [],
+                "source_refs": [
+                    {
+                        "chunk_id": f"external_protocol_{slugify(source_name)}_h{order:03d}",
+                        "source_name": source_name,
+                        "source_type": source_type,
+                        "source_url": url,
+                        "section": source_name,
+                    }
+                ],
+            }
+        )
+    return {
+        "protocol_id": f"external_protocol_{slugify(source_name)}",
+        "source_name": source_name,
+        "source_type": source_type,
+        "domain": experiment_type,
+        "steps": steps,
+        "raw_text": content,
+        "evidence_claims": [],
+        "step_source_capable": source_type in {"external_protocol", "supplier_doc"},
+        "parser_mode": "heuristic_fallback_no_llm_key",
+        "source_url": url,
+    }
+
+
+def content_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def infer_external_operation(text: str) -> str:
+    lower = text.lower()
+    if "viability" in lower or "celltiter" in lower:
+        return "viability_assay"
+    if "trehalose" in lower or "cryoprotect" in lower:
+        return "intervention_adaptation"
+    if "culture" in lower or "thaw" in lower:
+        return "cell_handling"
+    return "external_evidence"
+
+
 async def extract_steps_from_section(
     metadata: dict[str, Any],
     section_title: str,
@@ -176,4 +309,3 @@ def infer_domain_from_steps(steps: list[dict[str, Any]]) -> str:
     if any(term in blob for term in ["culture", "passage", "confluence"]):
         return "cell_culture"
     return "general_lab_operations"
-

@@ -1,6 +1,5 @@
 // Core data model types — designed to mirror the backend schemas in the
-// implementation plan so wiring up the API later is a matter of swapping
-// the mock data layer for real fetch calls.
+// implementation plan and FastAPI response schemas.
 
 export type StepClassification =
   | "exact_reuse"
@@ -200,6 +199,12 @@ export interface Workflow {
     imported_steps: number;
     adapted_steps: number;
     gap_filled_steps: number;
+    parser_mode?: string;
+    cache_hit?: boolean;
+  };
+  validation_report?: {
+    ok: boolean;
+    issues: { severity: "error" | "warning"; step_id?: string | null; message: string }[];
   };
   open_decision_count: number;
   created_at: string;

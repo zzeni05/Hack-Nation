@@ -51,7 +51,6 @@ components/
   Trace.tsx           # §06 execution trace + SOP improvement signals
 lib/
   api.ts              # FastAPI client
-  mock-workflow.ts    # HeLa trehalose canonical demo workflow
   samples.ts          # All four challenge sample hypotheses
   display.ts          # Classification metadata, formatters
 types/

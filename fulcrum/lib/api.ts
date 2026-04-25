@@ -119,3 +119,11 @@ export async function uploadKnowledgeFiles(files: File[]): Promise<{
     body: JSON.stringify({ documents }),
   });
 }
+
+export async function getKnowledgeChunk(chunkId: string): Promise<{
+  chunk_id: string;
+  text: string;
+  metadata: Record<string, unknown>;
+}> {
+  return apiFetch(`/api/knowledge/chunks/${encodeURIComponent(chunkId)}`);
+}

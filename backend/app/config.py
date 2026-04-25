@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     workflow_store_path: str = "./data/workflows.json"
     feedback_store_path: str = "./data/feedback.json"
     trace_store_path: str = "./data/trace_events.json"
+    protocol_cache_path: str = "./data/protocol_candidates.json"
 
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 

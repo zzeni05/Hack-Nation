@@ -57,7 +57,7 @@ def generate_tavily_queries(intent: dict[str, Any]) -> list[str]:
 
 async def discover_external_sources(intent: dict[str, Any], *, max_results_per_query: int = 2) -> list[ExternalSource]:
     if not settings.tavily_api_key:
-        return curated_external_sources(intent)
+        return []
 
     sources: list[ExternalSource] = []
     async with httpx.AsyncClient(timeout=20) as client:
@@ -145,52 +145,4 @@ def source_type_from_domain(domain: str) -> str:
     if any(domain.endswith(d) for d in ["nature.com", "ncbi.nlm.nih.gov"]):
         return "external_paper"
     return "external_protocol"
-
-
-def curated_external_sources(intent: dict[str, Any]) -> list[ExternalSource]:
-    """Fallback references keep the demo deterministic without a Tavily key."""
-    query = "curated fallback for " + (intent.get("experiment_type") or "scientific workflow")
-    return [
-        ExternalSource(
-            title="Intracellular trehalose improves the survival of cryopreserved mammalian cells",
-            url="https://www.nature.com/articles/nbt0200_163",
-            content=(
-                "Intracellular trehalose improves the survival of cryopreserved mammalian cells. "
-                "The work supports trehalose loading as a cryoprotection strategy and motivates "
-                "decision points around extracellular supplementation versus intracellular loading."
-            ),
-            source_name="Nature Biotechnology",
-            source_type="external_paper",
-            domain="nature.com",
-            query=query,
-            content_quality="curated_fallback",
-        ),
-        ExternalSource(
-            title="CellTiter-Glo Luminescent Cell Viability Assay Protocol",
-            url="https://www.promega.com/resources/protocols/technical-bulletins/0/celltiter-glo-luminescent-cell-viability-assay-protocol/",
-            content=(
-                "Promega CellTiter-Glo Luminescent Cell Viability Assay Protocol. The assay is "
-                "used for quantifying viable cells in multiwell formats and supports plate-reader "
-                "comparative viability workflows."
-            ),
-            source_name="Promega",
-            source_type="supplier_doc",
-            domain="promega.com",
-            query=query,
-            content_quality="curated_fallback",
-        ),
-        ExternalSource(
-            title="ATCC animal cell culture guide",
-            url="https://www.atcc.org/resources/culture-guides/animal-cell-culture-guide",
-            content=(
-                "ATCC animal cell culture guidance covers mammalian cell maintenance, subculture, "
-                "freezing, thawing, and recovery practices relevant to HeLa culture workflows."
-            ),
-            source_name="ATCC",
-            source_type="supplier_doc",
-            domain="atcc.org",
-            query=query,
-            content_quality="curated_fallback",
-        ),
-    ]
 
