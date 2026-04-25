@@ -18,7 +18,7 @@ from app.intent import extract_structured_intent
 from app.knowledge import ingest_external_sources, ingest_uploaded_documents, retrieve_context
 from app.llm import complete, stream
 from app.protocol_cache import find_protocol_step_by_chunk_id
-from app.run_store import add_step_attachment, complete_run, create_run, get_run, update_step_notes, update_step_status
+from app.run_store import add_step_attachment, complete_run, create_run, get_run, update_run_findings, update_step_notes, update_step_status
 from app.sop_improvement import generate_sop_recommendations
 from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
 from app.tavily_search import RetrievalConfig, discover_external_sources, generate_tavily_queries, source_to_dict
@@ -433,6 +433,7 @@ class CommitDecisionRequest(BaseModel):
     step_id: str
     selected_option_id: str
     scientist_note: str | None = None
+    custom_branch: dict | None = None
 
 
 @app.post("/api/workflows/{workflow_id}/decisions")
@@ -445,6 +446,7 @@ async def workflows_commit_decision(workflow_id: str, req: CommitDecisionRequest
         req.step_id,
         req.selected_option_id,
         req.scientist_note,
+        req.custom_branch,
     )
     save_workflow(updated)
     return {"workflow": updated}
@@ -593,6 +595,12 @@ class RunStepAttachmentRequest(BaseModel):
     content_type: str | None = None
 
 
+class RunFindingsRequest(BaseModel):
+    conclusion: str | None = None
+    findings: str | None = None
+    next_steps: str | None = None
+
+
 @app.post("/api/runs/{run_id}/steps/{step_id}/start")
 async def run_step_start(run_id: str, step_id: str, req: RunStepUpdateRequest | None = None):
     req = req or RunStepUpdateRequest()
@@ -670,6 +678,19 @@ async def run_step_attachment(run_id: str, step_id: str, req: RunStepAttachmentR
 @app.post("/api/runs/{run_id}/complete")
 async def run_complete(run_id: str):
     run = complete_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run": run}
+
+
+@app.post("/api/runs/{run_id}/findings")
+async def run_findings(run_id: str, req: RunFindingsRequest):
+    run = update_run_findings(
+        run_id,
+        conclusion=req.conclusion,
+        findings=req.findings,
+        next_steps=req.next_steps,
+    )
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"run": run}

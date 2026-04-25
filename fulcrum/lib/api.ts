@@ -265,7 +265,15 @@ export async function commitDecision(
   workflowId: string,
   stepId: string,
   selectedOptionId: string,
-  scientistNote?: string
+  scientistNote?: string,
+  customBranch?: {
+    label: string;
+    summary: string;
+    tradeoffs?: string[];
+    costImpact?: "Low" | "Medium" | "High";
+    timelineImpact?: string;
+    risks?: string[];
+  }
 ): Promise<{ workflow: Workflow }> {
   return apiFetch<{ workflow: Workflow }>(`/api/workflows/${workflowId}/decisions`, {
     method: "POST",
@@ -273,6 +281,16 @@ export async function commitDecision(
       step_id: stepId,
       selected_option_id: selectedOptionId,
       scientist_note: scientistNote ?? null,
+      custom_branch: customBranch
+        ? {
+            label: customBranch.label,
+            summary: customBranch.summary,
+            tradeoffs: customBranch.tradeoffs ?? [],
+            cost_impact: customBranch.costImpact ?? "Medium",
+            timeline_impact: customBranch.timelineImpact ?? null,
+            risks: customBranch.risks ?? [],
+          }
+        : null,
     }),
   });
 }
@@ -420,6 +438,21 @@ export async function addRunStepAttachment(
       filename: payload.filename,
       note: payload.note ?? null,
       content_type: payload.contentType ?? null,
+    }),
+  });
+  return result.run;
+}
+
+export async function saveRunFindings(
+  runId: string,
+  payload: { conclusion?: string; findings?: string; nextSteps?: string }
+): Promise<ExecutionRun> {
+  const result = await apiFetch<{ run: ExecutionRun }>(`/api/runs/${runId}/findings`, {
+    method: "POST",
+    body: JSON.stringify({
+      conclusion: payload.conclusion ?? "",
+      findings: payload.findings ?? "",
+      next_steps: payload.nextSteps ?? "",
     }),
   });
   return result.run;

@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.store import list_feedback
+from app.store import _read_json, list_feedback
 
 
 def generate_sop_recommendations() -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
 
-    for run in load_prior_runs():
-        sop = run.get("sop") or "Unknown SOP"
-        step = run.get("modified_step") or run.get("step_id") or "Unknown step"
-        grouped[(sop, step)].append(run)
+    for run in load_completed_runs():
+        for step in run.get("steps", []):
+            deviation = (step.get("deviation_note") or "").strip()
+            if not deviation:
+                continue
+            workflow_id = run.get("workflow_id", "Unknown workflow")
+            step_name = step.get("title") or step.get("step_id") or "Unknown step"
+            grouped[(workflow_id, step_name)].append(
+                {
+                    "sop": workflow_id,
+                    "modified_step": step_name,
+                    "modification": deviation,
+                    "reason": step.get("operator_note", ""),
+                }
+            )
 
     for feedback in list_feedback():
         sop = feedback.get("section") or "Scientist feedback"
@@ -47,6 +56,8 @@ def generate_sop_recommendations() -> list[dict[str, Any]]:
                 "signal": f"{len(entries)} prior runs or scientist corrections modified this SOP step.",
                 "common_modification": common_modification or "Repeated scientist edits detected for this step.",
                 "recommendation": build_recommendation(sop, step, common_modification, reason),
+                "source_basis": "actual_runs_feedback",
+                "evidence_count": len(entries),
             }
         )
 
@@ -54,16 +65,20 @@ def generate_sop_recommendations() -> list[dict[str, Any]]:
 
 
 def load_prior_runs() -> list[dict[str, Any]]:
-    root = Path(settings.knowledge_path)
-    if not root.exists():
+    # Deprecated: kept as a compatibility shim, but intentionally no longer reads
+    # bundled knowledge/internal demo files. SOP signals should come from actual
+    # user runs or explicit scientist feedback only.
+    return load_completed_runs()
+
+
+def load_completed_runs() -> list[dict[str, Any]]:
+    runs = _read_json(settings.run_store_path, {})
+    if not isinstance(runs, dict):
         return []
-    runs: list[dict[str, Any]] = []
-    for path in root.glob("prior_run*.json"):
-        try:
-            runs.append(json.loads(path.read_text()))
-        except json.JSONDecodeError:
-            continue
-    return runs
+    return [
+        run for run in runs.values()
+        if isinstance(run, dict) and run.get("status") == "completed"
+    ]
 
 
 def most_descriptive(values: list[str]) -> str:
@@ -81,4 +96,3 @@ def build_recommendation(sop: str, step: str, modification: str, reason: str) ->
     if reason:
         recommendation += f" Common rationale: {reason}."
     return recommendation
-

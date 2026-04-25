@@ -20,6 +20,9 @@ export function WorkflowSummary({ workflow }: { workflow: Workflow }) {
       ).length,
     0
   );
+  const realSopSignals = workflow.sop_recommendations.filter(
+    (rec) => rec.source_basis === "actual_runs_feedback" || Boolean(rec.evidence_count)
+  ).length;
 
   return (
     <motion.div
@@ -38,7 +41,7 @@ export function WorkflowSummary({ workflow }: { workflow: Workflow }) {
       <Cell label="Est. budget" value={formatCurrency(totalBudget)} />
       <Cell
         label="SOP signals"
-        value={workflow.sop_recommendations.length.toString()}
+        value={realSopSignals.toString()}
         amber
       />
       <Cell

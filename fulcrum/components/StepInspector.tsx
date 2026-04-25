@@ -13,7 +13,15 @@ interface Props {
   onCommitDecision: (
     stepId: string,
     optionId: string,
-    note: string
+    note: string,
+    customBranch?: {
+      label: string;
+      summary: string;
+      tradeoffs?: string[];
+      costImpact?: "Low" | "Medium" | "High";
+      timelineImpact?: string;
+      risks?: string[];
+    }
   ) => void;
   onModifyStep: (stepId: string, instructions: string[], note: string) => void;
   onSubmitFeedback: (
@@ -50,6 +58,12 @@ export function StepInspector({
   const [feedbackReason, setFeedbackReason] = useState("");
   const [openChunkId, setOpenChunkId] = useState<string | null>(null);
   const [chunkText, setChunkText] = useState<string>("");
+  const [customLabel, setCustomLabel] = useState("");
+  const [customSummary, setCustomSummary] = useState("");
+  const [customTradeoffs, setCustomTradeoffs] = useState("");
+  const [customCostImpact, setCustomCostImpact] = useState<"Low" | "Medium" | "High">("Medium");
+  const [customTimelineImpact, setCustomTimelineImpact] = useState("");
+  const [customRisks, setCustomRisks] = useState("");
   const isMissingContext = step?.classification === "missing_context";
 
   useEffect(() => {
@@ -70,6 +84,12 @@ export function StepInspector({
     setFeedbackReason("");
     setOpenChunkId(null);
     setChunkText("");
+    setCustomLabel("");
+    setCustomSummary("");
+    setCustomTradeoffs("");
+    setCustomCostImpact("Medium");
+    setCustomTimelineImpact("");
+    setCustomRisks("");
   }, [step?.step_id]);
 
   async function toggleChunk(chunkId: string) {
@@ -180,6 +200,74 @@ export function StepInspector({
                 )}
 
                 <div className="mt-4 space-y-3">
+                  <button
+                    onClick={() => setSelected("custom_branch")}
+                    className={classNames(
+                      "group relative w-full border bg-paper p-4 text-left transition-all",
+                      selected === "custom_branch"
+                        ? "border-ink bg-paper-deep/60"
+                        : "border-ochre/40 hover:border-ink/50"
+                    )}
+                  >
+                    <span className={classNames("absolute left-0 top-0 h-full w-1 transition-all", selected === "custom_branch" ? "bg-ochre" : "bg-transparent")} />
+                    <div className="flex items-start gap-3">
+                      <span className={classNames("mt-1 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border", selected === "custom_branch" ? "border-ink" : "border-ink-mute")}>
+                        {selected === "custom_branch" && <span className="h-1.5 w-1.5 rounded-full bg-ochre" />}
+                      </span>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-display text-[17px] tracking-tight" style={{ fontWeight: 500 }}>
+                            Add custom branch
+                          </span>
+                          <span className="border border-ochre px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-ochre">
+                            Scientist authored
+                          </span>
+                        </div>
+                        <p className="mt-1 font-display text-[13px] leading-[1.5] text-ink-soft">
+                          Choose this when none of the retrieved branches fit and you want to define the operational path from lab judgment.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+
+                  {selected === "custom_branch" && (
+                    <div className="border border-ochre/40 bg-ochre/5 p-4">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ochre">
+                        Custom branch details
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <label className="sm:col-span-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Branch title</span>
+                          <input value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} className="mt-1 w-full border border-ink/25 bg-paper px-3 py-2 font-display text-[14px] focus:outline-none" placeholder="e.g. Use lab-standard trehalose loading condition" />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Operational summary / instructions</span>
+                          <textarea value={customSummary} onChange={(event) => setCustomSummary(event.target.value)} rows={4} className="mt-1 w-full resize-none border border-ink/25 bg-paper px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none" placeholder="Describe what the scientist will do, key parameters, controls, and acceptance criteria." />
+                        </label>
+                        <label>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Cost impact</span>
+                          <select value={customCostImpact} onChange={(event) => setCustomCostImpact(event.target.value as "Low" | "Medium" | "High")} className="mt-1 w-full border border-ink/25 bg-paper px-3 py-2 font-mono text-[12px] focus:outline-none">
+                            <option value="Low">Low</option>
+                            <option value="Medium">Medium</option>
+                            <option value="High">High</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Timeline impact</span>
+                          <input value={customTimelineImpact} onChange={(event) => setCustomTimelineImpact(event.target.value)} className="mt-1 w-full border border-ink/25 bg-paper px-3 py-2 font-display text-[14px] focus:outline-none" placeholder="e.g. +1 day for optimization" />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Tradeoffs</span>
+                          <textarea value={customTradeoffs} onChange={(event) => setCustomTradeoffs(event.target.value)} rows={2} className="mt-1 w-full resize-none border border-ink/25 bg-paper px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none" placeholder="One tradeoff per line." />
+                        </label>
+                        <label className="sm:col-span-2">
+                          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Risks</span>
+                          <textarea value={customRisks} onChange={(event) => setCustomRisks(event.target.value)} rows={2} className="mt-1 w-full resize-none border border-ink/25 bg-paper px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none" placeholder="One risk per line." />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
                   {step.options.map((option) => {
                     const isSelected = selected === option.option_id;
                     return (
@@ -298,12 +386,26 @@ export function StepInspector({
                 </div>
 
                 <button
-                  disabled={!selected}
-                  onClick={() => selected && onCommitDecision(step.step_id, selected, note)}
+                  disabled={!selected || (selected === "custom_branch" && (!customLabel.trim() || !customSummary.trim()))}
+                  onClick={() => {
+                    if (!selected) return;
+                    if (selected === "custom_branch") {
+                      onCommitDecision(step.step_id, selected, note, {
+                        label: customLabel.trim(),
+                        summary: customSummary.trim(),
+                        tradeoffs: lines(customTradeoffs),
+                        costImpact: customCostImpact,
+                        timelineImpact: customTimelineImpact.trim(),
+                        risks: lines(customRisks),
+                      });
+                      return;
+                    }
+                    onCommitDecision(step.step_id, selected, note);
+                  }}
                   className="mt-4 inline-flex items-center gap-2 bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.18em] text-paper transition-colors hover:bg-rust disabled:opacity-30"
                 >
                   <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  Commit decision · recompile workflow
+                  {selected === "custom_branch" ? "Commit custom branch" : "Commit decision"} · recompile workflow
                 </button>
               </div>
             )}
@@ -511,6 +613,10 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="font-mono text-[12px] tabular-nums text-ink">{value}</div>
     </div>
   );
+}
+
+function lines(value: string): string[] {
+  return value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
 function MissingContextPanel({ step, onAuthor }: { step: WorkflowStep; onAuthor: () => void }) {

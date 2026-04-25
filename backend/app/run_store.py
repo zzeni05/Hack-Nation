@@ -194,6 +194,34 @@ def add_step_attachment(
     return run
 
 
+def update_run_findings(
+    run_id: str,
+    *,
+    conclusion: str | None = None,
+    findings: str | None = None,
+    next_steps: str | None = None,
+) -> dict[str, Any] | None:
+    run = get_run(run_id)
+    if run is None:
+        return None
+    run["findings"] = {
+        "conclusion": conclusion or "",
+        "findings": findings or "",
+        "next_steps": next_steps or "",
+        "updated_at": now_iso(),
+    }
+    run["events"].append(
+        build_run_event(
+            "run_findings_updated",
+            "Run conclusion and findings updated.",
+            operator_note=conclusion,
+        )
+    )
+    save_run(run)
+    append_workflow_trace_for_run(run, "note_added", "Run conclusion and findings updated.", conclusion)
+    return run
+
+
 def complete_run(run_id: str) -> dict[str, Any] | None:
     run = get_run(run_id)
     if run is None:

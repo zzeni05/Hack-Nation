@@ -8,7 +8,8 @@ export type StepClassification =
   | "decision_required"
   | "missing_context"
   | "facility_constraint"
-  | "historically_modified";
+  | "historically_modified"
+  | "scientist_authored";
 
 export type NoveltySignal = "not_found" | "similar_work_exists" | "exact_match_found";
 
@@ -99,6 +100,8 @@ export interface DecisionOption {
   risks: string[];
   supporting_refs: SourceRef[];
   recommended: boolean;
+  custom?: boolean;
+  scientist_note?: string | null;
 }
 
 export interface WorkflowStep {
@@ -240,6 +243,8 @@ export interface SopRecommendation {
   signal: string;
   common_modification: string;
   recommendation: string;
+  source_basis?: string;
+  evidence_count?: number;
 }
 
 export interface Workflow {
@@ -313,6 +318,12 @@ export interface ExecutionRun {
     summary: string;
     timestamp: string;
   }[];
+  findings?: {
+    conclusion: string;
+    findings: string;
+    next_steps: string;
+    updated_at: string;
+  };
 }
 
 export interface SampleHypothesis {

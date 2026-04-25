@@ -39,6 +39,11 @@ export const CLASSIFICATION_META: Record<
     short: "HISTORY",
     tone: "ochre",
   },
+  scientist_authored: {
+    label: "Scientist authored",
+    short: "CUSTOM",
+    tone: "ochre",
+  },
 };
 
 export const NOVELTY_META: Record<

@@ -115,7 +115,19 @@ export function ExecutionTrace({ trace }: { trace: TraceEvent[] }) {
 }
 
 export function SopImprovementPanel({ recs }: { recs: SopRecommendation[] }) {
-  if (recs.length === 0) return null;
+  const realRecs = recs.filter((rec) => rec.source_basis === "actual_runs_feedback" || Boolean(rec.evidence_count));
+  if (realRecs.length === 0) {
+    return (
+      <section className="border border-ink/20 bg-paper-deep/20 p-4">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+          SOP Improvement Signals
+        </div>
+        <p className="mt-2 font-display text-[13px] leading-[1.45] text-ink-soft">
+          No real SOP improvement signal yet. Signals are only shown after repeated actual run deviations or repeated scientist feedback are detected.
+        </p>
+      </section>
+    );
+  }
   return (
     <section>
       <div className="flex items-baseline justify-between gap-3 border-b border-ink pb-2">
@@ -133,7 +145,7 @@ export function SopImprovementPanel({ recs }: { recs: SopRecommendation[] }) {
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        {recs.map((rec, i) => (
+        {realRecs.map((rec, i) => (
           <motion.div
             key={rec.recommendation_id}
             initial={{ opacity: 0, y: 4 }}
@@ -181,13 +193,8 @@ export function SopImprovementPanel({ recs }: { recs: SopRecommendation[] }) {
               </p>
             </div>
 
-            <div className="mt-4 flex gap-2">
-              <button className="border border-ink px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink transition-colors hover:bg-ink hover:text-paper">
-                Accept
-              </button>
-              <button className="border border-ink/30 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-soft transition-colors hover:border-ink hover:text-ink">
-                Defer
-              </button>
+            <div className="mt-4 border-t border-ochre/20 pt-3 font-mono text-[9px] uppercase tracking-[0.16em] text-ink-mute">
+              Evidence basis · {rec.evidence_count ?? "unknown"} actual run/feedback records
             </div>
           </motion.div>
         ))}

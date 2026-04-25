@@ -14,6 +14,7 @@ import {
   startRunStep,
   submitFeedback,
   previewRetrievalStream,
+  saveRunFindings,
   updateWorkflowPlan,
   type CompileProgressEvent,
 } from "@/lib/api";
@@ -32,7 +33,7 @@ import { ExecutionTrace, SopImprovementPanel } from "@/components/Trace";
 import { ExecutionWorkspace } from "@/components/ExecutionWorkspace";
 import { KnowledgeUpload } from "@/components/KnowledgeUpload";
 import { GuidedShell, StageHeader, type AppStage, type StageItem } from "@/components/guided/GuidedShell";
-import { ArrowRight, BookOpenText, RefreshCw, Search, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText, Download, RefreshCw, Save, Search, Sparkles } from "lucide-react";
 
 export default function Home() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -112,10 +113,18 @@ export default function Home() {
   async function handleCommitDecision(
     stepId: string,
     optionId: string,
-    note: string
+    note: string,
+    customBranch?: {
+      label: string;
+      summary: string;
+      tradeoffs?: string[];
+      costImpact?: "Low" | "Medium" | "High";
+      timelineImpact?: string;
+      risks?: string[];
+    }
   ) {
     if (!workflow) return;
-    const result = await commitDecision(workflow.workflow_id, stepId, optionId, note);
+    const result = await commitDecision(workflow.workflow_id, stepId, optionId, note, customBranch);
     setWorkflow(result.workflow);
     setSelectedStepId(null);
   }
@@ -204,6 +213,11 @@ export default function Home() {
     setStage("review");
   }
 
+  async function handleSaveFindings(payload: { conclusion?: string; findings?: string; nextSteps?: string }) {
+    if (!executionRun) return;
+    setExecutionRun(await saveRunFindings(executionRun.run_id, payload));
+  }
+
   const stages = buildStages(
     stage,
     workflow,
@@ -282,7 +296,7 @@ export default function Home() {
         )}
 
         {stage === "review" && workflow && (
-          <ReviewStage workflow={workflow} executionRun={executionRun} />
+          <ReviewStage workflow={workflow} executionRun={executionRun} onSaveFindings={handleSaveFindings} />
         )}
       </GuidedShell>
 
@@ -879,18 +893,31 @@ function ExecuteStage({
   );
 }
 
-function ReviewStage({ workflow, executionRun }: { workflow: Workflow; executionRun: ExecutionRun | null }) {
+function ReviewStage({
+  workflow,
+  executionRun,
+  onSaveFindings,
+}: {
+  workflow: Workflow;
+  executionRun: ExecutionRun | null;
+  onSaveFindings: (payload: { conclusion?: string; findings?: string; nextSteps?: string }) => Promise<void>;
+}) {
   return (
     <div>
       <StageHeader number="07" eyebrow="Review" title="Turn execution into memory.">
-        Review trace events, deviations, run status, and SOP improvement signals after execution.
+        Review trace events, deviations, run status, conclusions, exports, and any real SOP improvement signals after execution.
       </StageHeader>
       <div className="grid gap-8 xl:grid-cols-[1fr_360px]">
         <div className="space-y-10">
           {executionRun && (
             <section className="border border-ink bg-paper-deep/30 p-5">
-              <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">Run summary</div>
-              <div className="mt-2 font-display text-[26px] leading-none">{executionRun.status}</div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">Run summary</div>
+                  <div className="mt-2 font-display text-[26px] leading-none">{executionRun.status}</div>
+                </div>
+                <RunExportButtons workflow={workflow} run={executionRun} />
+              </div>
               <div className="mt-3 grid grid-cols-3 gap-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">
                 <span>{executionRun.steps.length} steps</span>
                 <span>{executionRun.steps.filter((s) => s.status === "completed").length} complete</span>
@@ -898,6 +925,7 @@ function ReviewStage({ workflow, executionRun }: { workflow: Workflow; execution
               </div>
             </section>
           )}
+          {executionRun && <FindingsEditor run={executionRun} onSave={onSaveFindings} />}
           {executionRun && <PlannedActualReview workflow={workflow} run={executionRun} />}
           <SopImprovementPanel recs={workflow.sop_recommendations} />
         </div>
@@ -905,6 +933,152 @@ function ReviewStage({ workflow, executionRun }: { workflow: Workflow; execution
       </div>
     </div>
   );
+}
+
+function FindingsEditor({
+  run,
+  onSave,
+}: {
+  run: ExecutionRun;
+  onSave: (payload: { conclusion?: string; findings?: string; nextSteps?: string }) => Promise<void>;
+}) {
+  const [conclusion, setConclusion] = useState(run.findings?.conclusion ?? "");
+  const [findings, setFindings] = useState(run.findings?.findings ?? "");
+  const [nextSteps, setNextSteps] = useState(run.findings?.next_steps ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave({ conclusion, findings, nextSteps });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="border border-ink bg-paper">
+      <div className="border-b border-ink px-4 py-3">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+          Conclusion and findings
+        </div>
+        <p className="mt-1 font-display text-[13px] leading-[1.45] text-ink-soft">
+          Capture the scientific outcome and operational lessons from this run. These notes are included in exports and saved to the run record.
+        </p>
+      </div>
+      <div className="grid gap-4 p-4">
+        <label>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Conclusion</span>
+          <textarea value={conclusion} onChange={(event) => setConclusion(event.target.value)} rows={3} className="mt-1 w-full resize-none border border-ink/20 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none" placeholder="Did the run support, reject, or partially support the hypothesis?" />
+        </label>
+        <label>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Findings</span>
+          <textarea value={findings} onChange={(event) => setFindings(event.target.value)} rows={5} className="mt-1 w-full resize-none border border-ink/20 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none" placeholder="Summarize measurements, observations, deviations, surprising results, and interpretation." />
+        </label>
+        <label>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">Recommended next steps</span>
+          <textarea value={nextSteps} onChange={(event) => setNextSteps(event.target.value)} rows={3} className="mt-1 w-full resize-none border border-ink/20 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none" placeholder="Repeat, adjust protocol, update SOP, run a follow-up condition..." />
+        </label>
+        <button onClick={() => void save()} disabled={saving} className="inline-flex w-fit items-center gap-2 bg-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-paper hover:bg-rust disabled:opacity-40">
+          <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+          {saving ? "Saving" : "Save findings"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function RunExportButtons({ workflow, run }: { workflow: Workflow; run: ExecutionRun }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button onClick={() => exportRunJson(workflow, run)} className="inline-flex items-center gap-2 border border-ink/30 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink hover:border-ink">
+        <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
+        JSON export
+      </button>
+      <button onClick={() => exportRunMarkdown(workflow, run)} className="inline-flex items-center gap-2 border border-ink/30 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink hover:border-ink">
+        <Download className="h-3.5 w-3.5" strokeWidth={1.5} />
+        Markdown export
+      </button>
+    </div>
+  );
+}
+
+function exportRunJson(workflow: Workflow, run: ExecutionRun) {
+  downloadText(
+    `${run.run_id}_full_provenance.json`,
+    JSON.stringify({ exported_at: new Date().toISOString(), workflow, run }, null, 2),
+    "application/json"
+  );
+}
+
+function exportRunMarkdown(workflow: Workflow, run: ExecutionRun) {
+  const lines = [
+    `# Run Export: ${run.run_id}`,
+    "",
+    `Workflow: ${workflow.workflow_id}`,
+    `Status: ${run.status}`,
+    `Created: ${run.created_at}`,
+    `Completed: ${run.completed_at ?? "not completed"}`,
+    "",
+    "## Hypothesis",
+    "",
+    workflow.hypothesis,
+    "",
+    "## Conclusion",
+    "",
+    run.findings?.conclusion || "Not recorded.",
+    "",
+    "## Findings",
+    "",
+    run.findings?.findings || "Not recorded.",
+    "",
+    "## Recommended Next Steps",
+    "",
+    run.findings?.next_steps || "Not recorded.",
+    "",
+    "## Steps",
+    "",
+    ...run.steps.flatMap((step) => [
+      `### ${step.order}. ${step.title}`,
+      "",
+      `Status: ${step.status}`,
+      `Classification: ${step.classification}`,
+      `Started: ${step.started_at ?? "not started"}`,
+      `Completed: ${step.completed_at ?? "not completed"}`,
+      "",
+      `Operator note: ${step.operator_note || "none"}`,
+      "",
+      `Deviation note: ${step.deviation_note || "none"}`,
+      "",
+      "Actuals:",
+      "```json",
+      JSON.stringify(step.actuals ?? {}, null, 2),
+      "```",
+      "",
+      `Attachments: ${step.attachments.length ? step.attachments.map((a) => a.filename).join(", ") : "none"}`,
+      "",
+    ]),
+    "## Workflow Trace",
+    "",
+    ...workflow.trace.map((event) => `- ${event.timestamp} | ${event.event_type} | ${event.summary}${event.scientist_note ? ` | Note: ${event.scientist_note}` : ""}`),
+    "",
+    "## Run Events",
+    "",
+    ...run.events.map((event) => `- ${event.timestamp} | ${event.event_type} | ${event.summary}`),
+  ];
+  downloadText(`${run.run_id}_full_provenance.md`, lines.join("\n"), "text/markdown");
+}
+
+function downloadText(filename: string, text: string, type: string) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function StepPlanContext({ workflow, activeStepId }: { workflow: Workflow; activeStepId: string | null }) {

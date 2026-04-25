@@ -912,16 +912,21 @@ def commit_decision_source_grounded(
     step_id: str,
     selected_option_id: str,
     scientist_note: str | None,
+    custom_branch: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(workflow)
     selected_option = None
     for step in updated.get("steps", []):
         if step.get("step_id") != step_id:
             continue
-        for option in step.get("options", []):
-            if option.get("option_id") == selected_option_id:
-                selected_option = option
-                break
+        if selected_option_id == "custom_branch":
+            selected_option = normalize_custom_decision_option(custom_branch or {}, scientist_note)
+            step.setdefault("options", []).append(selected_option)
+        else:
+            for option in step.get("options", []):
+                if option.get("option_id") == selected_option_id:
+                    selected_option = option
+                    break
         step["selected_option_id"] = selected_option_id
         step["scientist_note"] = scientist_note
         step["status"] = "complete"
@@ -940,7 +945,11 @@ def commit_decision_source_grounded(
         {
             "event_id": f"trace_{uuid4().hex[:8]}",
             "event_type": "decision_committed",
-            "summary": f"Scientist selected source-supported branch: {selected_option.get('label') if selected_option else selected_option_id}.",
+            "summary": (
+                f"Scientist selected custom branch: {selected_option.get('label')}."
+                if selected_option and selected_option.get("custom")
+                else f"Scientist selected source-supported branch: {selected_option.get('label') if selected_option else selected_option_id}."
+            ),
             "scientist_note": scientist_note,
             "affected_sections": ["protocol", "materials", "timeline", "validation", "risks"],
             "timestamp": updated["updated_at"],
@@ -950,12 +959,38 @@ def commit_decision_source_grounded(
         {
             "event_id": f"trace_{uuid4().hex[:8]}",
             "event_type": "workflow_recompiled",
-            "summary": "Workflow recompiled from selected source-supported decision option.",
+            "summary": (
+                "Workflow recompiled from scientist-authored custom decision branch."
+                if selected_option and selected_option.get("custom")
+                else "Workflow recompiled from selected source-supported decision option."
+            ),
             "affected_sections": ["protocol", "materials", "timeline", "validation", "risks"],
             "timestamp": updated["updated_at"],
         }
     )
     return updated
+
+
+def normalize_custom_decision_option(custom_branch: dict[str, Any], scientist_note: str | None) -> dict[str, Any]:
+    label = str(custom_branch.get("label") or "Scientist-authored branch").strip()[:120]
+    summary = str(custom_branch.get("summary") or custom_branch.get("instructions") or "").strip()
+    if not summary:
+        summary = "Scientist-authored branch. Operational details should be confirmed during execution."
+    tradeoffs = custom_branch.get("tradeoffs")
+    risks = custom_branch.get("risks")
+    return {
+        "option_id": "custom_branch",
+        "label": label,
+        "summary": summary,
+        "tradeoffs": tradeoffs if isinstance(tradeoffs, list) and tradeoffs else ["Scientist-authored; not directly source-backed by retrieved references."],
+        "cost_impact": custom_branch.get("cost_impact") if custom_branch.get("cost_impact") in {"Low", "Medium", "High"} else "Medium",
+        "timeline_impact": str(custom_branch.get("timeline_impact") or "Scientist estimate required"),
+        "risks": risks if isinstance(risks, list) and risks else ["Requires scientist justification and execution-time verification."],
+        "supporting_refs": [],
+        "recommended": False,
+        "custom": True,
+        "scientist_note": scientist_note,
+    }
 
 
 def insert_selected_option_step(workflow: dict[str, Any], decision_step_id: str, option: dict[str, Any]) -> None:
@@ -968,12 +1003,21 @@ def insert_selected_option_step(workflow: dict[str, Any], decision_step_id: str,
         "step_id": f"selected_{uuid4().hex[:8]}",
         "order": insert_at + 1,
         "title": option.get("label", "Selected source-supported branch"),
-        "classification": "external_literature_supported",
+        "classification": "scientist_authored" if option.get("custom") else "external_literature_supported",
         "status": "ready",
         "source_refs": option.get("supporting_refs", []),
-        "rationale": "Inserted from scientist-selected decision branch supported by retrieved source references.",
+        "rationale": (
+            "Inserted from a scientist-authored custom decision branch. This branch is not directly source-backed and should be treated as lab judgment for this workflow."
+            if option.get("custom")
+            else "Inserted from scientist-selected decision branch supported by retrieved source references."
+        ),
         "instructions": [option.get("summary", "Follow the selected source-supported branch.")],
         "depends_on": [decision_step_id],
+        "derivation": {
+            "kind": "custom_decision_branch" if option.get("custom") else "selected_decision_branch",
+            "basis": option.get("label", ""),
+            "message": "Scientist authored this branch during decision resolution." if option.get("custom") else "Scientist selected a source-supported decision branch.",
+        },
     }
     steps.insert(insert_at, source_step)
     for idx, step in enumerate(steps, start=1):
