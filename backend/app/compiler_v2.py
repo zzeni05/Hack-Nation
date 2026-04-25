@@ -26,6 +26,7 @@ from app.protocol_cache import (
     get_cached_protocol,
     set_cached_protocol,
 )
+from app.plan_compiler import compile_plan
 from app.protocol_parser import internal_protocol_files, protocol_search_text, token_overlap_score
 from app.validator import validate_workflow
 
@@ -159,7 +160,7 @@ async def compile_from_protocol_candidates(
         [step for step in workflow["steps"] if step["status"] == "needs_user_choice"]
     )
     await report_progress(progress, "drafting_plan_sections", "Deriving materials, budget, timeline, validation, and risk sections")
-    workflow["plan"] = derive_plan_from_workflow(workflow)
+    workflow["plan"] = compile_plan(workflow)
     await report_progress(progress, "validating_workflow", "Validating provenance and missing-context flags")
     workflow["validation_report"] = validate_workflow(workflow)
     workflow["trace"].insert(
@@ -240,11 +241,24 @@ def build_source_trace(context: dict[str, Any], timestamp: str) -> list[dict[str
 
 
 def build_qc_from_sources(external_sources: list[Any]) -> dict[str, Any]:
+    stats = {
+        "external_sources": len(external_sources),
+        "protocol_candidates": len([
+            source for source in external_sources
+            if getattr(source, "candidate_role", "") == "protocol_candidate"
+        ]),
+        "evidence_sources": len([
+            source for source in external_sources
+            if getattr(source, "candidate_role", "") != "protocol_candidate"
+        ]),
+        "queries": len({getattr(source, "query", "") for source in external_sources if getattr(source, "query", "")}),
+    }
     if not external_sources:
         return {
             "signal": "not_found",
             "summary": "No live external references were retrieved. Add TAVILY_API_KEY to run external protocol and literature discovery.",
             "references": [],
+            "stats": stats,
         }
     refs = []
     for source in external_sources[:3]:
@@ -255,13 +269,14 @@ def build_qc_from_sources(external_sources: list[Any]) -> dict[str, Any]:
                 "venue": getattr(source, "domain", "external"),
                 "year": datetime.now(UTC).year,
                 "url": getattr(source, "url", ""),
-                "relevance": f"Retrieved by query: {getattr(source, 'query', '')}",
+                "relevance": f"Quality {round(getattr(source, 'quality_score', 0) * 100)}%; {getattr(source, 'candidate_role', 'evidence')}; query: {getattr(source, 'query', '')}",
             }
         )
     return {
         "signal": "similar_work_exists",
         "summary": f"Retrieved {len(external_sources)} live external sources for literature/protocol QC.",
         "references": refs,
+        "stats": stats,
     }
 
 

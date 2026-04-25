@@ -73,6 +73,12 @@ export interface SopMatch {
 export interface LiteratureQC {
   signal: NoveltySignal;
   summary: string;
+  stats?: {
+    external_sources: number;
+    protocol_candidates: number;
+    evidence_sources: number;
+    queries: number;
+  };
   references: {
     title: string;
     authors: string;
@@ -123,6 +129,10 @@ export interface MaterialItem {
   unit_cost: number;
   total: number;
   confidence: "high" | "medium" | "low";
+  estimate_type?: string;
+  category?: string;
+  basis?: string;
+  needs_user_confirmation?: boolean;
   gap?: PlanGap;
   source_ref?: SourceRef;
 }
@@ -134,12 +144,17 @@ export interface BudgetLine {
   total: number;
   basis: string;
   confidence: "high" | "medium" | "low";
+  estimate_type?: string;
+  needs_user_confirmation?: boolean;
   gap?: PlanGap;
 }
 
 export interface TimelinePhase {
   phase: string;
   duration: string;
+  estimate_type?: string;
+  basis?: string;
+  needs_user_confirmation?: boolean;
   gap?: PlanGap;
   start_week: number;
   end_week: number;

@@ -367,6 +367,68 @@ async def retrieval_preview(req: RetrievalPreviewRequest):
     }
 
 
+@app.post("/api/retrieval/preview-stream")
+async def retrieval_preview_stream(req: RetrievalPreviewRequest):
+    if not req.hypothesis.strip():
+        raise HTTPException(status_code=400, detail="Hypothesis is required")
+
+    async def event_gen():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def progress(event: dict):
+            await queue.put({"type": "progress", **event})
+
+        async def run_preview():
+            structured_intent = extract_structured_intent(req.hypothesis)
+            config = RetrievalConfig(
+                max_results_per_query=max(1, min(req.tavily_max_results_per_query, 8)),
+                max_sources=max(1, min(req.tavily_max_sources, 40)),
+                max_queries=max(1, min(req.tavily_max_queries, 10)),
+                search_depth=req.tavily_search_depth if req.tavily_search_depth in {"basic", "advanced"} else "advanced",
+                include_domains=req.tavily_include_domains,
+                min_quality_score=max(0.0, min(req.min_external_quality_score, 1.0)),
+            )
+            await progress(
+                {
+                    "stage": "intent_extracted",
+                    "message": "Structured intent extracted; generating targeted Tavily queries.",
+                    "structured_intent": structured_intent,
+                }
+            )
+            sources = await discover_external_sources(structured_intent, config=config, progress=progress)
+            kept = [source for source in sources if source.quality_score >= config.min_quality_score]
+            rejected = [source for source in sources if source.quality_score < config.min_quality_score]
+            return {
+                "structured_intent": structured_intent,
+                "queries": generate_tavily_queries(structured_intent)[: config.max_queries],
+                "sources": [source_to_dict(source) for source in kept],
+                "rejected_sources": [source_to_dict(source) for source in rejected],
+                "config": config.__dict__,
+            }
+
+        task = asyncio.create_task(run_preview())
+        started_at = time.perf_counter()
+        while not task.done():
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=1)
+                yield json.dumps(event) + "\n"
+            except TimeoutError:
+                yield json.dumps({"type": "heartbeat", "elapsed_ms": int((time.perf_counter() - started_at) * 1000)}) + "\n"
+
+        while not queue.empty():
+            yield json.dumps(await queue.get()) + "\n"
+
+        try:
+            result = task.result()
+        except Exception as exc:
+            logger.exception("Retrieval preview failed")
+            yield json.dumps({"type": "error", "detail": {"message": "Retrieval preview failed", "error_type": exc.__class__.__name__, "error": str(exc)}}) + "\n"
+        else:
+            yield json.dumps({"type": "complete", **result}) + "\n"
+
+    return StreamingResponse(event_gen(), media_type="application/x-ndjson")
+
+
 class CommitDecisionRequest(BaseModel):
     step_id: str
     selected_option_id: str

@@ -5,11 +5,15 @@ import { motion } from "framer-motion";
 import { ArrowRight, BookOpenText, Search, Sparkles } from "lucide-react";
 import { SAMPLE_HYPOTHESES } from "@/lib/samples";
 import { KnowledgeUpload } from "@/components/KnowledgeUpload";
-import type { RetrievalOptions, RetrievalPreviewSource } from "@/lib/api";
+import type { RetrievalOptions, RetrievalPreviewEvent, RetrievalPreviewSource } from "@/lib/api";
 
 interface Props {
   onCompile: (hypothesis: string, options: RetrievalOptions) => void;
-  onPreviewRetrieval: (hypothesis: string, options: RetrievalOptions) => Promise<RetrievalPreviewSource[]>;
+  onPreviewRetrieval: (
+    hypothesis: string,
+    options: RetrievalOptions,
+    onEvent: (event: RetrievalPreviewEvent) => void
+  ) => Promise<RetrievalPreviewSource[]>;
   isCompiling: boolean;
 }
 
@@ -23,6 +27,7 @@ export function HypothesisInput({ onCompile, onPreviewRetrieval, isCompiling }: 
   const [previewSources, setPreviewSources] = useState<RetrievalPreviewSource[]>([]);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewEvents, setPreviewEvents] = useState<RetrievalPreviewEvent[]>([]);
 
   const retrievalOptions: RetrievalOptions = {
     maxSources,
@@ -36,8 +41,11 @@ export function HypothesisInput({ onCompile, onPreviewRetrieval, isCompiling }: 
   async function preview() {
     if (!text.trim() || isPreviewing) return;
     setIsPreviewing(true);
+    setPreviewEvents([]);
     try {
-      const sources = await onPreviewRetrieval(text.trim(), retrievalOptions);
+      const sources = await onPreviewRetrieval(text.trim(), retrievalOptions, (event) => {
+        setPreviewEvents((events) => [...events.slice(-30), event]);
+      });
       setPreviewSources(sources);
       setSelectedUrls(new Set(sources.filter((s) => s.candidate_role === "protocol_candidate").map((s) => s.url)));
     } finally {
@@ -181,6 +189,29 @@ export function HypothesisInput({ onCompile, onPreviewRetrieval, isCompiling }: 
                   </span>
                 </label>
               ))}
+            </div>
+          </div>
+        )}
+        {isPreviewing && (
+          <div className="mt-4 border-t border-rule pt-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-rust">
+              Live retrieval
+            </div>
+            <div className="mt-2 space-y-1">
+              {previewEvents.filter((event) => event.type !== "heartbeat").slice(-6).map((event, i) => (
+                <div key={i} className="grid grid-cols-[18px_1fr_auto] gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-mute">
+                  <span className="mt-1 h-1.5 w-1.5 animate-pulse rounded-full bg-rust" />
+                  <span>{event.type === "progress" ? event.message : event.type}</span>
+                  {event.type === "progress" && event.current && event.total && (
+                    <span>{event.current}/{event.total}</span>
+                  )}
+                </div>
+              ))}
+              {previewEvents.some((event) => event.type === "heartbeat") && (
+                <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-mute">
+                  Waiting on Tavily response...
+                </div>
+              )}
             </div>
           </div>
         )}

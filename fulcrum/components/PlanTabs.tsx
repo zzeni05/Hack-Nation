@@ -145,6 +145,8 @@ function MaterialsTable({ workflow, total }: { workflow: Workflow; total: number
               <td className="py-3 pr-3">
                 <div className="text-ink" style={{ fontWeight: 500 }}>{m.name}</div>
                 <div className="font-mono text-[10px] text-ink-mute">{m.purpose}</div>
+                <EstimateBadge type={m.estimate_type} confirm={m.needs_user_confirmation} />
+                {m.basis && <div className="mt-1 font-display text-[12px] leading-[1.35] text-ink-soft">{m.basis}</div>}
                 {m.gap && <GapInline reason={m.gap.reason} />}
               </td>
               <td className="py-3 pr-3 font-mono text-[12px] tabular-nums text-ink-soft">{m.supplier}</td>
@@ -170,7 +172,7 @@ function MaterialsTable({ workflow, total }: { workflow: Workflow; total: number
 }
 
 function BudgetView({ workflow, total }: { workflow: Workflow; total: number }) {
-  const max = Math.max(...workflow.plan.budget.map((b) => b.total));
+  const max = Math.max(1, ...workflow.plan.budget.map((b) => b.total));
   return (
     <div>
       <div className="mb-6 flex items-baseline justify-between border-b border-ink/20 pb-3">
@@ -224,6 +226,7 @@ function BudgetView({ workflow, total }: { workflow: Workflow; total: number }) 
                   conf · {b.confidence}
                 </span>
               </div>
+              <EstimateBadge type={b.estimate_type} confirm={b.needs_user_confirmation} />
               {b.gap && <GapInline reason={b.gap.reason} />}
             </div>
           </motion.div>
@@ -276,6 +279,7 @@ function TimelineView({ workflow, totalWeeks }: { workflow: Workflow; totalWeeks
                 <div className="font-display text-[13px]">
                   <div style={{ fontWeight: 500 }}>{phase.phase}</div>
                   <div className="font-mono text-[10px] text-ink-mute">{phase.duration}</div>
+                  <EstimateBadge type={phase.estimate_type} confirm={phase.needs_user_confirmation} />
                   {phase.gap && <GapInline reason={phase.gap.reason} />}
                 </div>
               <div className="relative h-7 border-y border-rule-soft bg-paper-deep/20">
@@ -327,6 +331,16 @@ function GapInline({ reason }: { reason: string }) {
   return (
     <div className="mt-1 border-l border-ochre pl-2 font-mono text-[9px] uppercase tracking-[0.14em] text-ochre">
       Gap · {reason}
+    </div>
+  );
+}
+
+function EstimateBadge({ type, confirm }: { type?: string; confirm?: boolean }) {
+  if (!type) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1 font-mono text-[9px] uppercase tracking-[0.14em]">
+      <span className="border border-ink/20 px-1.5 py-0.5 text-ink-mute">{type.replaceAll("_", " ")}</span>
+      {confirm && <span className="border border-ochre/50 px-1.5 py-0.5 text-ochre">confirm</span>}
     </div>
   );
 }

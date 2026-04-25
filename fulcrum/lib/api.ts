@@ -165,6 +165,20 @@ export interface RetrievalPreviewSource {
   content_preview: string;
 }
 
+export type RetrievalPreviewEvent =
+  | {
+      type: "progress";
+      stage: string;
+      message: string;
+      current?: number;
+      total?: number;
+      query?: string;
+      sources_found?: number;
+    }
+  | { type: "heartbeat"; elapsed_ms: number }
+  | { type: "complete"; sources: RetrievalPreviewSource[]; rejected_sources: RetrievalPreviewSource[]; queries: string[] }
+  | { type: "error"; detail: unknown };
+
 export async function previewRetrieval(
   hypothesis: string,
   options: RetrievalOptions
@@ -180,6 +194,48 @@ export async function previewRetrieval(
       min_external_quality_score: options.minQualityScore ?? 0.25,
     }),
   });
+}
+
+export async function previewRetrievalStream(
+  hypothesis: string,
+  options: RetrievalOptions,
+  onEvent: (event: RetrievalPreviewEvent) => void
+): Promise<{ sources: RetrievalPreviewSource[]; rejected_sources: RetrievalPreviewSource[]; queries: string[] }> {
+  const res = await fetch(`${API_URL}/api/retrieval/preview-stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      hypothesis,
+      tavily_max_results_per_query: options.maxResultsPerQuery ?? 2,
+      tavily_max_sources: options.maxSources ?? 12,
+      tavily_max_queries: options.maxQueries ?? 10,
+      tavily_search_depth: options.searchDepth ?? "advanced",
+      min_external_quality_score: options.minQualityScore ?? 0.25,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(formatApiError(res.status, await res.text()));
+  }
+  if (!res.body) throw new Error("Retrieval stream did not return a body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as RetrievalPreviewEvent;
+      onEvent(event);
+      if (event.type === "complete") return event;
+      if (event.type === "error") throw new Error(formatStreamError(event.detail));
+    }
+    if (done) break;
+  }
+  throw new Error("Retrieval stream ended before returning sources");
 }
 
 function formatStreamError(detail: unknown, status?: number): string {

@@ -14,10 +14,10 @@ import {
   saveRunStepNotes,
   startRunStep,
   submitFeedback,
-  previewRetrieval,
+  previewRetrievalStream,
   type CompileProgressEvent,
 } from "@/lib/api";
-import type { RetrievalOptions, RetrievalPreviewSource } from "@/lib/api";
+import type { RetrievalOptions, RetrievalPreviewEvent, RetrievalPreviewSource } from "@/lib/api";
 import { Masthead } from "@/components/Masthead";
 import { HypothesisInput } from "@/components/HypothesisInput";
 import { CompilingOverlay } from "@/components/CompilingOverlay";
@@ -69,8 +69,12 @@ export default function Home() {
     }
   }
 
-  async function handlePreviewRetrieval(hypothesis: string, retrieval: RetrievalOptions): Promise<RetrievalPreviewSource[]> {
-    const result = await previewRetrieval(hypothesis, retrieval);
+  async function handlePreviewRetrieval(
+    hypothesis: string,
+    retrieval: RetrievalOptions,
+    onEvent: (event: RetrievalPreviewEvent) => void
+  ): Promise<RetrievalPreviewSource[]> {
+    const result = await previewRetrievalStream(hypothesis, retrieval, onEvent);
     return result.sources;
   }
 

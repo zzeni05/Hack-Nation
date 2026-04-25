@@ -55,15 +55,13 @@ export function LiteratureQC({ qc }: { qc: LitQCType }) {
           </p>
 
           <div className="mt-5 border-t border-rule pt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-ink-mute">
-            Indexed sources scanned
+            Retrieval results
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-[28px] tabular-nums text-ink">
-              1,847
-            </span>
-            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-              papers · 92 protocol entries
-            </span>
+          <div className="mt-2 grid grid-cols-2 gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">
+            <Metric value={qc.stats?.external_sources ?? qc.references.length} label="sources" />
+            <Metric value={qc.stats?.protocol_candidates ?? 0} label="protocol candidates" />
+            <Metric value={qc.stats?.evidence_sources ?? 0} label="evidence only" />
+            <Metric value={qc.stats?.queries ?? 0} label="queries" />
           </div>
         </motion.div>
 
@@ -115,5 +113,14 @@ export function LiteratureQC({ qc }: { qc: LitQCType }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function Metric({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="border-l border-rule pl-2">
+      <div className="font-mono text-[22px] leading-none tabular-nums text-ink">{value}</div>
+      <div className="mt-1">{label}</div>
+    </div>
   );
 }
