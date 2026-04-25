@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -36,11 +37,20 @@ async def compile_from_protocol_candidates(
     prior_feedback: list[dict[str, Any]] | None = None,
     sop_recommendations: list[dict[str, Any]] | None = None,
     external_sources: list[Any] | None = None,
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     intent = extract_structured_intent(hypothesis)
     parser_mode = "llm" if llm_available() else "heuristic_fallback_no_llm_key"
     protocols = []
-    for path, source_type in internal_protocol_files():
+    internal_files = list(internal_protocol_files())
+    for index, (path, source_type) in enumerate(internal_files, start=1):
+        await report_progress(
+            progress,
+            "parsing_internal_protocol",
+            f"Parsing internal {source_type}: {path.name}",
+            current=index,
+            total=len(internal_files),
+        )
         key = file_cache_key(path, parser_mode)
         cached = get_cached_protocol(key)
         if cached:
@@ -53,7 +63,15 @@ async def compile_from_protocol_candidates(
         protocols.append(protocol)
 
     external_protocols = []
-    for source in external_sources or []:
+    external_source_list = external_sources or []
+    for index, source in enumerate(external_source_list, start=1):
+        await report_progress(
+            progress,
+            "parsing_external_protocol",
+            f"Parsing external source: {getattr(source, 'title', 'external source')}",
+            current=index,
+            total=len(external_source_list),
+        )
         key = external_cache_key(
             getattr(source, "url", getattr(source, "title", "external")),
             parser_mode,
@@ -70,7 +88,14 @@ async def compile_from_protocol_candidates(
         external_protocols.append(protocol)
 
     protocols.extend(external_protocols)
-    scored = await score_protocols(protocols, intent, hypothesis, prior_feedback or [])
+    await report_progress(
+        progress,
+        "scoring_protocol_candidates",
+        f"Scoring {len(protocols)} protocol candidates against the hypothesis",
+        current=0,
+        total=len(protocols),
+    )
+    scored = await score_protocols(protocols, intent, hypothesis, prior_feedback or [], progress=progress)
     base = scored[0]["protocol"] if scored else None
     timestamp = now_iso()
 
@@ -91,7 +116,17 @@ async def compile_from_protocol_candidates(
     }
 
     if base:
+        await report_progress(
+            progress,
+            "assembling_workflow_steps",
+            f"Assembling workflow from base protocol: {base['source_name']}",
+        )
         assembled_steps = assemble_steps_from_base_protocol(base, intent, scored[0].get("mapping"))
+        await report_progress(
+            progress,
+            "generating_decision_nodes",
+            "Converting protocol gaps and ambiguous adaptations into decision nodes",
+        )
         workflow["steps"] = inject_gap_and_decision_steps(assembled_steps, scored[0], scored[1:], intent)
         workflow["sop_match"] = build_protocol_sop_match(scored[0])
     else:
@@ -107,7 +142,9 @@ async def compile_from_protocol_candidates(
     workflow["open_decision_count"] = len(
         [step for step in workflow["steps"] if step["status"] == "needs_user_choice"]
     )
+    await report_progress(progress, "drafting_plan_sections", "Deriving materials, budget, timeline, validation, and risk sections")
     workflow["plan"] = derive_plan_from_workflow(workflow)
+    await report_progress(progress, "validating_workflow", "Validating provenance and missing-context flags")
     workflow["validation_report"] = validate_workflow(workflow)
     workflow["trace"].insert(
         2,
@@ -136,6 +173,24 @@ async def compile_from_protocol_candidates(
         )
 
     return workflow
+
+
+async def report_progress(
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    stage: str,
+    message: str,
+    **data: Any,
+) -> None:
+    if progress is None:
+        return
+    await progress(
+        {
+            "stage": stage,
+            "message": message,
+            "timestamp": datetime.now(UTC).isoformat(),
+            **data,
+        }
+    )
 
 
 def build_source_trace(context: dict[str, Any], timestamp: str) -> list[dict[str, Any]]:
@@ -329,6 +384,7 @@ async def score_protocols(
     intent: dict[str, Any],
     hypothesis: str,
     prior_feedback: list[dict[str, Any]],
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> list[dict[str, Any]]:
     query = " ".join(
         [
@@ -341,7 +397,16 @@ async def score_protocols(
         ]
     )
     scored = []
-    for protocol in protocols:
+    for index, protocol in enumerate(protocols, start=1):
+        await report_progress(
+            progress,
+            "scoring_protocol_candidate",
+            f"Scoring candidate {index}/{len(protocols)}: {protocol['source_name']}",
+            current=index,
+            total=len(protocols),
+            source_name=protocol["source_name"],
+            source_type=protocol["source_type"],
+        )
         llm_mapping = await map_protocol_to_intent_llm(intent, protocol, prior_feedback)
         text = protocol_search_text(protocol)
         score = token_overlap_score(query, text)

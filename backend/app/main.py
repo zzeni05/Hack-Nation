@@ -1,10 +1,14 @@
 """FastAPI entrypoint."""
+import asyncio
+import json
+import logging
 import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -25,19 +29,51 @@ from app.tavily_search import discover_external_sources, generate_tavily_queries
 from app.vector_store import get_chunk, stats as vector_stats
 
 app = FastAPI(title="Hackathon Backend", version="0.1.0")
+logger = logging.getLogger("uvicorn.error")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+@app.on_event("startup")
+async def log_runtime_config():
+    logger.info("CORS allowed origins: %s", settings.cors_origins_list)
+    logger.info("CORS allowed origin regex: %s", settings.cors_origin_regex)
+    logger.info(
+        "Configured services: llm_provider=%s openai=%s anthropic=%s tavily=%s",
+        settings.llm_provider,
+        bool(settings.openai_api_key),
+        bool(settings.anthropic_api_key),
+        bool(settings.tavily_api_key),
+    )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "provider": settings.llm_provider, "vector_stats": vector_stats()}
+
+
+@app.get("/api/debug/runtime")
+async def debug_runtime():
+    return {
+        "cors": {
+            "origins": settings.cors_origins_list,
+            "origin_regex": settings.cors_origin_regex,
+        },
+        "services": {
+            "llm_provider": settings.llm_provider,
+            "openai_configured": bool(settings.openai_api_key),
+            "anthropic_configured": bool(settings.anthropic_api_key),
+            "tavily_configured": bool(settings.tavily_api_key),
+        },
+        "vector_stats": vector_stats(),
+    }
 
 
 class ChatRequest(BaseModel):
@@ -140,48 +176,144 @@ class CompileWorkflowRequest(BaseModel):
 
 @app.post("/api/workflows/compile")
 async def workflows_compile(req: CompileWorkflowRequest):
+    return await compile_workflow_core(req)
+
+
+async def compile_workflow_core(req: CompileWorkflowRequest, progress=None):
     if not req.hypothesis.strip():
         raise HTTPException(status_code=400, detail="Hypothesis is required")
-    ingest_internal_knowledge()
-    structured_intent = extract_structured_intent(req.hypothesis)
-    external_ingest_result = None
-    external_source_count = 0
-    external_sources = []
-    if req.use_external_retrieval:
-        external_sources = await discover_external_sources(structured_intent)
-        external_source_count = len(external_sources)
-        external_ingest_result = ingest_external_sources(
-            external_sources,
+    stage = "start"
+    try:
+        stage = "ingest_internal_knowledge"
+        await emit_progress(progress, stage, "Loading and chunking internal SOP/runbook knowledge")
+        ingest_internal_knowledge()
+        stage = "extract_structured_intent"
+        await emit_progress(progress, stage, "Extracting model system, intervention, comparator, outcome, and constraints")
+        structured_intent = extract_structured_intent(req.hypothesis)
+        external_ingest_result = None
+        external_source_count = 0
+        external_sources = []
+        if req.use_external_retrieval:
+            stage = "discover_external_sources_tavily"
+            await emit_progress(progress, stage, "Running targeted Tavily searches across protocol and supplier sources")
+            external_sources = await discover_external_sources(structured_intent, progress=progress)
+            external_source_count = len(external_sources)
+            stage = "ingest_external_sources"
+            await emit_progress(progress, stage, f"Embedding {external_source_count} retrieved external references locally")
+            external_ingest_result = ingest_external_sources(
+                external_sources,
+                structured_intent.get("experiment_type", "unknown"),
+            )
+        stage = "retrieve_context"
+        await emit_progress(progress, stage, "Retrieving nearest internal and external chunks from local vector memory")
+        context = retrieve_context(req.hypothesis)
+        stage = "retrieve_prior_feedback"
+        await emit_progress(progress, stage, "Retrieving prior scientist corrections for this experiment type")
+        feedback = relevant_feedback(
             structured_intent.get("experiment_type", "unknown"),
+            req.hypothesis,
         )
-    context = retrieve_context(req.hypothesis)
-    feedback = relevant_feedback(
-        structured_intent.get("experiment_type", "unknown"),
-        req.hypothesis,
-    )
-    workflow = await compile_from_protocol_candidates(
-        req.hypothesis,
-        context,
-        prior_feedback=feedback,
-        sop_recommendations=generate_sop_recommendations(),
-        external_sources=external_sources,
-    )
-    if external_ingest_result is not None:
-        workflow["trace"].insert(
-            2,
-            {
-                "event_id": f"trace_{uuid4().hex[:8]}",
-                "event_type": "external_sources_retrieved",
-                "summary": (
-                    f"Discovered {external_source_count} external references and embedded "
-                    f"{external_ingest_result['chunks_created']} chunks into local RAG memory."
-                ),
-                "affected_sections": ["literature_qc", "decision_nodes", "materials", "validation"],
-                "timestamp": datetime.now(UTC).isoformat(),
+        stage = "compile_from_protocol_candidates"
+        await emit_progress(progress, stage, "Compiling source-grounded executable workflow")
+        workflow = await compile_from_protocol_candidates(
+            req.hypothesis,
+            context,
+            prior_feedback=feedback,
+            sop_recommendations=generate_sop_recommendations(),
+            external_sources=external_sources,
+            progress=progress,
+        )
+        if external_ingest_result is not None:
+            workflow["trace"].insert(
+                2,
+                {
+                    "event_id": f"trace_{uuid4().hex[:8]}",
+                    "event_type": "external_sources_retrieved",
+                    "summary": (
+                        f"Discovered {external_source_count} external references and embedded "
+                        f"{external_ingest_result['chunks_created']} chunks into local RAG memory."
+                    ),
+                    "affected_sections": ["literature_qc", "decision_nodes", "materials", "validation"],
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        stage = "save_workflow"
+        await emit_progress(progress, stage, "Persisting workflow, trace, and provenance metadata")
+        save_workflow(workflow)
+        return {"workflow": workflow}
+    except Exception as exc:
+        logger.exception("Workflow compile failed at stage=%s", stage)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Workflow compile failed",
+                "stage": stage,
+                "error_type": exc.__class__.__name__,
+                "error": str(exc),
             },
-        )
-    save_workflow(workflow)
-    return {"workflow": workflow}
+        ) from exc
+
+
+async def emit_progress(progress, stage: str, message: str, **data):
+    if progress is None:
+        return
+    await progress(
+        {
+            "stage": stage,
+            "message": message,
+            "timestamp": datetime.now(UTC).isoformat(),
+            **data,
+        }
+    )
+
+
+@app.post("/api/workflows/compile-stream")
+async def workflows_compile_stream(req: CompileWorkflowRequest):
+    if not req.hypothesis.strip():
+        raise HTTPException(status_code=400, detail="Hypothesis is required")
+
+    async def event_gen():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def progress(event: dict):
+            await queue.put({"type": "progress", **event})
+
+        task = asyncio.create_task(compile_workflow_core(req, progress=progress))
+        started_at = time.perf_counter()
+
+        while not task.done():
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=1)
+                yield json.dumps(event) + "\n"
+            except TimeoutError:
+                elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+                yield json.dumps({"type": "heartbeat", "elapsed_ms": elapsed_ms}) + "\n"
+
+        while not queue.empty():
+            yield json.dumps(await queue.get()) + "\n"
+
+        try:
+            result = task.result()
+        except HTTPException as exc:
+            yield json.dumps({"type": "error", "detail": exc.detail, "status_code": exc.status_code}) + "\n"
+        except Exception as exc:
+            logger.exception("Streaming workflow compile failed")
+            yield json.dumps(
+                {
+                    "type": "error",
+                    "detail": {
+                        "message": "Workflow compile failed",
+                        "error_type": exc.__class__.__name__,
+                        "error": str(exc),
+                    },
+                    "status_code": 500,
+                }
+            ) + "\n"
+        else:
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            yield json.dumps({"type": "complete", "elapsed_ms": elapsed_ms, **result}) + "\n"
+
+    return StreamingResponse(event_gen(), media_type="application/x-ndjson")
 
 
 @app.post("/api/retrieval/queries")

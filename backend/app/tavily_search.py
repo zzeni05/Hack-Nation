@@ -7,6 +7,7 @@ embedded into the local vector index by the compile pipeline.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -55,13 +56,28 @@ def generate_tavily_queries(intent: dict[str, Any]) -> list[str]:
     ]
 
 
-async def discover_external_sources(intent: dict[str, Any], *, max_results_per_query: int = 2) -> list[ExternalSource]:
+async def discover_external_sources(
+    intent: dict[str, Any],
+    *,
+    max_results_per_query: int = 2,
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+) -> list[ExternalSource]:
     if not settings.tavily_api_key:
         return []
 
     sources: list[ExternalSource] = []
+    queries = generate_tavily_queries(intent)
     async with httpx.AsyncClient(timeout=20) as client:
-        for query in generate_tavily_queries(intent):
+        for index, query in enumerate(queries, start=1):
+            await report_progress(
+                progress,
+                "tavily_query",
+                f"Tavily query {index}/{len(queries)}: {query}",
+                current=index,
+                total=len(queries),
+                query=query,
+                sources_found=len(dedupe_sources(sources)),
+            )
             response = await client.post(
                 "https://api.tavily.com/search",
                 json={
@@ -78,8 +94,28 @@ async def discover_external_sources(intent: dict[str, Any], *, max_results_per_q
                 source = normalize_tavily_result(result, query)
                 if source and len(source.content.strip()) > 120:
                     sources.append(source)
+            await report_progress(
+                progress,
+                "tavily_query_complete",
+                f"Completed Tavily query {index}/{len(queries)}; {len(dedupe_sources(sources))} unique sources found",
+                current=index,
+                total=len(queries),
+                query=query,
+                sources_found=len(dedupe_sources(sources)),
+            )
 
     return dedupe_sources(sources)[:12]
+
+
+async def report_progress(
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    stage: str,
+    message: str,
+    **data: Any,
+) -> None:
+    if progress is None:
+        return
+    await progress({"stage": stage, "message": message, **data})
 
 
 def normalize_tavily_result(result: dict[str, Any], query: str) -> ExternalSource | None:
@@ -145,4 +181,3 @@ def source_type_from_domain(domain: str) -> str:
     if any(domain.endswith(d) for d in ["nature.com", "ncbi.nlm.nih.gov"]):
         return "external_paper"
     return "external_protocol"
-

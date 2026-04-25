@@ -12,10 +12,37 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail || `Request failed: ${res.status}`);
+    const body = await res.text();
+    throw new Error(formatApiError(res.status, body));
   }
   return (await res.json()) as T;
+}
+
+function formatApiError(status: number, body: string): string {
+  if (!body) return `Request failed: ${status}`;
+  try {
+    const parsed = JSON.parse(body) as {
+      detail?: string | {
+        message?: string;
+        stage?: string;
+        error_type?: string;
+        error?: string;
+      };
+    };
+    if (typeof parsed.detail === "string") return parsed.detail;
+    if (parsed.detail && typeof parsed.detail === "object") {
+      const parts = [
+        parsed.detail.message ?? `Request failed: ${status}`,
+        parsed.detail.stage ? `stage=${parsed.detail.stage}` : null,
+        parsed.detail.error_type ? `type=${parsed.detail.error_type}` : null,
+        parsed.detail.error ? `error=${parsed.detail.error}` : null,
+      ].filter(Boolean);
+      return parts.join(" | ");
+    }
+  } catch {
+    // Fall through to raw body for non-JSON server errors.
+  }
+  return body || `Request failed: ${status}`;
 }
 
 /**
@@ -34,6 +61,90 @@ export async function compileWorkflow(
     }),
   });
   return result.workflow;
+}
+
+export type CompileProgressEvent =
+  | {
+      type: "progress";
+      stage: string;
+      message: string;
+      timestamp?: string;
+      current?: number;
+      total?: number;
+      source_name?: string;
+      source_type?: string;
+    }
+  | { type: "heartbeat"; elapsed_ms: number }
+  | { type: "complete"; elapsed_ms: number; workflow: Workflow }
+  | { type: "error"; status_code?: number; detail: unknown };
+
+export async function compileWorkflowStream(
+  hypothesis: string,
+  options: {
+    useExternalRetrieval?: boolean;
+    onEvent?: (event: CompileProgressEvent) => void;
+  } = {}
+): Promise<Workflow> {
+  const res = await fetch(`${API_URL}/api/workflows/compile-stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      hypothesis,
+      use_external_retrieval: options.useExternalRetrieval ?? true,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(formatApiError(res.status, body));
+  }
+  if (!res.body) {
+    throw new Error("Compile stream did not return a response body");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as CompileProgressEvent;
+      options.onEvent?.(event);
+      if (event.type === "complete") return event.workflow;
+      if (event.type === "error") {
+        throw new Error(formatStreamError(event.detail, event.status_code));
+      }
+    }
+
+    if (done) break;
+  }
+
+  throw new Error("Compile stream ended before returning a workflow");
+}
+
+function formatStreamError(detail: unknown, status?: number): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const value = detail as {
+      message?: string;
+      stage?: string;
+      error_type?: string;
+      error?: string;
+    };
+    return [
+      value.message ?? `Request failed${status ? `: ${status}` : ""}`,
+      value.stage ? `stage=${value.stage}` : null,
+      value.error_type ? `type=${value.error_type}` : null,
+      value.error ? `error=${value.error}` : null,
+    ].filter(Boolean).join(" | ");
+  }
+  return `Request failed${status ? `: ${status}` : ""}`;
 }
 
 /**

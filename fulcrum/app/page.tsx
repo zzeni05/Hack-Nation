@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Workflow } from "@/types";
-import { compileWorkflow, commitDecision, modifyStep, submitFeedback } from "@/lib/api";
+import { compileWorkflowStream, commitDecision, modifyStep, submitFeedback, type CompileProgressEvent } from "@/lib/api";
 import { Masthead } from "@/components/Masthead";
 import { HypothesisInput } from "@/components/HypothesisInput";
 import { CompilingOverlay } from "@/components/CompilingOverlay";
@@ -22,6 +22,7 @@ export default function Home() {
   const [isCompiling, setIsCompiling] = useState(false);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compileEvents, setCompileEvents] = useState<CompileProgressEvent[]>([]);
 
   const selectedStep =
     workflow?.steps.find((s) => s.step_id === selectedStepId) ?? null;
@@ -30,8 +31,12 @@ export default function Home() {
     setIsCompiling(true);
     setSelectedStepId(null);
     setError(null);
+    setCompileEvents([]);
     try {
-      const wf = await compileWorkflow(hypothesis, { useExternalRetrieval: true });
+      const wf = await compileWorkflowStream(hypothesis, {
+        useExternalRetrieval: true,
+        onEvent: (event) => setCompileEvents((events) => [...events.slice(-80), event]),
+      });
       setWorkflow(wf);
       // Smoothly scroll to results after compile
       setTimeout(() => {
@@ -90,7 +95,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen">
-      <CompilingOverlay visible={isCompiling} />
+      <CompilingOverlay visible={isCompiling} events={compileEvents} />
 
       <Masthead />
 
