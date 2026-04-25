@@ -66,8 +66,8 @@ export async function submitFeedback(
   rating: number,
   correction: string,
   reason: string
-): Promise<{ ok: true }> {
-  return apiFetch<{ ok: true }>(`/api/workflows/${workflowId}/feedback`, {
+): Promise<{ ok: true; workflow: Workflow }> {
+  return apiFetch<{ ok: true; workflow: Workflow }>(`/api/workflows/${workflowId}/feedback`, {
     method: "POST",
     body: JSON.stringify({
       step_id: stepId,
@@ -75,6 +75,21 @@ export async function submitFeedback(
       rating,
       correction,
       reason,
+    }),
+  });
+}
+
+export async function modifyStep(
+  workflowId: string,
+  stepId: string,
+  modifiedInstructions: string[],
+  scientistNote?: string
+): Promise<{ workflow: Workflow }> {
+  return apiFetch<{ workflow: Workflow }>(`/api/workflows/${workflowId}/steps/${stepId}/modify`, {
+    method: "POST",
+    body: JSON.stringify({
+      modified_instructions: modifiedInstructions,
+      scientist_note: scientistNote ?? null,
     }),
   });
 }

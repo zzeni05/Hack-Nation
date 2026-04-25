@@ -25,7 +25,7 @@ export function WorkflowSummary({ workflow }: { workflow: Workflow }) {
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className="grid gap-px overflow-hidden border border-ink bg-ink sm:grid-cols-3 lg:grid-cols-6"
+      className="grid gap-px overflow-hidden border border-ink bg-ink sm:grid-cols-3 lg:grid-cols-7"
     >
       <Cell label="Steps" value={workflow.steps.length.toString()} />
       <Cell
@@ -40,6 +40,11 @@ export function WorkflowSummary({ workflow }: { workflow: Workflow }) {
         label="SOP signals"
         value={workflow.sop_recommendations.length.toString()}
         amber
+      />
+      <Cell
+        label="Lab memory"
+        value={(workflow.memory_used?.length ?? 0).toString()}
+        amber={(workflow.memory_used?.length ?? 0) > 0}
       />
     </motion.div>
   );

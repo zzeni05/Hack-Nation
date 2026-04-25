@@ -60,8 +60,16 @@ def first_match(text: str, candidates: list[str]) -> str | None:
     return None
 
 
-def compile_workflow(hypothesis: str, context: dict[str, Any]) -> dict[str, Any]:
+def compile_workflow(
+    hypothesis: str,
+    context: dict[str, Any],
+    *,
+    prior_feedback: list[dict[str, Any]] | None = None,
+    sop_recommendations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     intent = extract_structured_intent(hypothesis)
+    prior_feedback = prior_feedback or []
+    sop_recommendations = sop_recommendations or []
     workflow = deepcopy(DEMO_WORKFLOW)
     timestamp = now_iso()
     workflow["workflow_id"] = f"wf_{uuid4().hex[:10]}"
@@ -71,6 +79,9 @@ def compile_workflow(hypothesis: str, context: dict[str, Any]) -> dict[str, Any]
     workflow["updated_at"] = timestamp
     workflow["sop_match"] = build_sop_match(context)
     workflow["trace"] = build_trace(context, timestamp)
+    workflow["memory_used"] = summarize_feedback(prior_feedback)
+    if sop_recommendations:
+        workflow["sop_recommendations"] = sop_recommendations
 
     if context["stats"]["chunks"] == 0:
         workflow["sop_match"]["match_confidence"] = 0.0
@@ -80,7 +91,50 @@ def compile_workflow(hypothesis: str, context: dict[str, Any]) -> dict[str, Any]
             "facility notes, or prior run records before compiling production workflows."
         )
 
+    if prior_feedback:
+        apply_feedback_memory(workflow, prior_feedback)
+        workflow["trace"].insert(
+            2,
+            {
+                "event_id": f"trace_{uuid4().hex[:8]}",
+                "event_type": "memory_retrieved",
+                "summary": f"Retrieved {len(prior_feedback)} prior scientist corrections for this experiment type.",
+                "affected_sections": ["protocol", "validation", "decision_nodes"],
+                "timestamp": timestamp,
+            },
+        )
+
     return workflow
+
+
+def summarize_feedback(feedback: list[dict[str, Any]]) -> list[str]:
+    summaries = []
+    for entry in feedback:
+        correction = entry.get("correction", "").strip()
+        reason = entry.get("reason", "").strip()
+        if correction and reason:
+            summaries.append(f"{correction} Reason: {reason}")
+        elif correction:
+            summaries.append(correction)
+    return summaries
+
+
+def apply_feedback_memory(workflow: dict[str, Any], feedback: list[dict[str, Any]]) -> None:
+    text = " ".join(
+        " ".join(str(entry.get(key, "")) for key in ["section", "correction", "reason"])
+        for entry in feedback
+    ).lower()
+    if "celltiter" in text or "plate" in text or "96-well" in text:
+        for step in workflow["steps"]:
+            if step["step_id"] == "step_008":
+                step["modification_signal"] = (
+                    "Prior lab memory reinforces use of plate-reader viability as the primary readout."
+                )
+                if "Prior scientist feedback recommends plate-reader viability as primary readout." not in step["instructions"]:
+                    step["instructions"].insert(
+                        0,
+                        "Prior scientist feedback recommends plate-reader viability as primary readout.",
+                    )
 
 
 def build_sop_match(context: dict[str, Any]) -> dict[str, Any]:

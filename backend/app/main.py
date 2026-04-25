@@ -18,7 +18,8 @@ from app.knowledge import (
     retrieve_context,
 )
 from app.llm import complete, stream
-from app.store import append_feedback, get_workflow, save_workflow
+from app.sop_improvement import generate_sop_recommendations
+from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
 from app.tavily_search import discover_external_sources, generate_tavily_queries
 from app.vector_store import stats as vector_stats
 
@@ -152,7 +153,16 @@ async def workflows_compile(req: CompileWorkflowRequest):
             structured_intent.get("experiment_type", "unknown"),
         )
     context = retrieve_context(req.hypothesis)
-    workflow = compile_workflow(req.hypothesis, context)
+    feedback = relevant_feedback(
+        structured_intent.get("experiment_type", "unknown"),
+        req.hypothesis,
+    )
+    workflow = compile_workflow(
+        req.hypothesis,
+        context,
+        prior_feedback=feedback,
+        sop_recommendations=generate_sop_recommendations(),
+    )
     if external_ingest_result is not None:
         workflow["trace"].insert(
             2,
@@ -281,6 +291,4 @@ async def workflows_trace(workflow_id: str):
 
 @app.get("/api/sop-improvements")
 async def sop_improvements():
-    # The demo compiler embeds recommendations in each workflow. This endpoint
-    # exists for the future aggregate view.
-    return {"recommendations": []}
+    return {"recommendations": generate_sop_recommendations()}

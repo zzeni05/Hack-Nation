@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, GitBranch, BookOpen, AlertTriangle, Star, Send } from "lucide-react";
+import { X, GitBranch, BookOpen, AlertTriangle, Star, Send, FileEdit, MessageSquare } from "lucide-react";
 import type { WorkflowStep } from "@/types";
 import { CLASSIFICATION_META, classNames } from "@/lib/display";
 
@@ -14,6 +14,14 @@ interface Props {
     optionId: string,
     note: string
   ) => void;
+  onModifyStep: (stepId: string, instructions: string[], note: string) => void;
+  onSubmitFeedback: (
+    stepId: string,
+    section: string,
+    rating: number,
+    correction: string,
+    reason: string
+  ) => void;
 }
 
 const TONE_TEXT: Record<string, string> = {
@@ -23,9 +31,22 @@ const TONE_TEXT: Record<string, string> = {
   ochre: "text-ochre",
 };
 
-export function StepInspector({ step, onClose, onCommitDecision }: Props) {
+export function StepInspector({
+  step,
+  onClose,
+  onCommitDecision,
+  onModifyStep,
+  onSubmitFeedback,
+}: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedInstructions, setEditedInstructions] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [feedbackSection, setFeedbackSection] = useState("protocol");
+  const [feedbackRating, setFeedbackRating] = useState(4);
+  const [feedbackCorrection, setFeedbackCorrection] = useState("");
+  const [feedbackReason, setFeedbackReason] = useState("");
 
   useEffect(() => {
     if (step?.classification === "decision_required") {
@@ -36,6 +57,13 @@ export function StepInspector({ step, onClose, onCommitDecision }: Props) {
       setSelected(null);
       setNote("");
     }
+    setIsEditing(false);
+    setEditedInstructions((step?.instructions ?? []).join("\n"));
+    setEditNote("");
+    setFeedbackSection("protocol");
+    setFeedbackRating(4);
+    setFeedbackCorrection("");
+    setFeedbackReason("");
   }, [step?.step_id]);
 
   return (
@@ -250,19 +278,146 @@ export function StepInspector({ step, onClose, onCommitDecision }: Props) {
                   <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink">
                     Operational instructions
                   </span>
+                  <button
+                    onClick={() => setIsEditing((value) => !value)}
+                    className="ml-auto inline-flex items-center gap-1.5 border border-ink/30 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-ink-soft transition-colors hover:border-ink hover:text-ink"
+                  >
+                    <FileEdit className="h-3 w-3" strokeWidth={1.5} />
+                    {isEditing ? "Cancel" : "Edit"}
+                  </button>
                 </div>
-                <ol className="mt-3 space-y-2">
-                  {step.instructions.map((inst, i) => (
-                    <li key={i} className="grid grid-cols-[28px_1fr] gap-2 font-display text-[14px] leading-[1.55]">
-                      <span className="font-mono text-[11px] tabular-nums text-ink-mute">
-                        {String(i + 1).padStart(2, "0")}.
-                      </span>
-                      <span className="text-ink-soft">{inst}</span>
-                    </li>
-                  ))}
-                </ol>
+                {isEditing ? (
+                  <div className="mt-3">
+                    <textarea
+                      value={editedInstructions}
+                      onChange={(e) => setEditedInstructions(e.target.value)}
+                      rows={8}
+                      className="w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] text-ink-soft focus:border-ink focus:outline-none"
+                    />
+                    <label className="mt-3 block font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+                      Scientist edit note
+                    </label>
+                    <textarea
+                      value={editNote}
+                      onChange={(e) => setEditNote(e.target.value)}
+                      rows={2}
+                      placeholder="Why are you modifying this SOP-derived step?"
+                      className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] placeholder:text-ink-mute/70 focus:border-ink focus:outline-none"
+                    />
+                    <button
+                      onClick={() => {
+                        const instructions = editedInstructions
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean);
+                        onModifyStep(step.step_id, instructions, editNote);
+                        setIsEditing(false);
+                      }}
+                      className="mt-3 inline-flex items-center gap-2 bg-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-paper transition-colors hover:bg-rust"
+                    >
+                      <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      Save modification
+                    </button>
+                  </div>
+                ) : (
+                  <ol className="mt-3 space-y-2">
+                    {step.instructions.map((inst, i) => (
+                      <li key={i} className="grid grid-cols-[28px_1fr] gap-2 font-display text-[14px] leading-[1.55]">
+                        <span className="font-mono text-[11px] tabular-nums text-ink-mute">
+                          {String(i + 1).padStart(2, "0")}.
+                        </span>
+                        <span className="text-ink-soft">{inst}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             )}
+
+            {/* Scientist feedback */}
+            <div className="mt-7 border-t border-rule pt-5">
+              <div className="flex items-center gap-2 border-b border-ink pb-2">
+                <MessageSquare className="h-4 w-4" strokeWidth={1.5} />
+                <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink">
+                  Scientist review
+                </span>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_90px]">
+                <label>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+                    Section
+                  </span>
+                  <select
+                    value={feedbackSection}
+                    onChange={(e) => setFeedbackSection(e.target.value)}
+                    className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-mono text-[12px] uppercase tracking-[0.14em] text-ink focus:border-ink focus:outline-none"
+                  >
+                    <option value="protocol">Protocol</option>
+                    <option value="materials">Materials</option>
+                    <option value="budget">Budget</option>
+                    <option value="timeline">Timeline</option>
+                    <option value="validation">Validation</option>
+                    <option value="risks">Risks</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+                    Rating
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={feedbackRating}
+                    onChange={(e) => setFeedbackRating(Number(e.target.value))}
+                    className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-mono text-[12px] text-ink focus:border-ink focus:outline-none"
+                  />
+                </label>
+              </div>
+              <label className="mt-3 block">
+                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+                  Correction
+                </span>
+                <textarea
+                  value={feedbackCorrection}
+                  onChange={(e) => setFeedbackCorrection(e.target.value)}
+                  rows={3}
+                  placeholder="What should future workflows do differently?"
+                  className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] placeholder:text-ink-mute/70 focus:border-ink focus:outline-none"
+                />
+              </label>
+              <label className="mt-3 block">
+                <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+                  Reason
+                </span>
+                <textarea
+                  value={feedbackReason}
+                  onChange={(e) => setFeedbackReason(e.target.value)}
+                  rows={2}
+                  placeholder="Prior lab experience, cost, equipment constraint, reproducibility concern..."
+                  className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] placeholder:text-ink-mute/70 focus:border-ink focus:outline-none"
+                />
+              </label>
+              <button
+                disabled={!feedbackCorrection.trim()}
+                onClick={() => {
+                  onSubmitFeedback(
+                    step.step_id,
+                    feedbackSection,
+                    feedbackRating,
+                    feedbackCorrection,
+                    feedbackReason
+                  );
+                  setFeedbackCorrection("");
+                  setFeedbackReason("");
+                }}
+                className="mt-3 inline-flex items-center gap-2 border border-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink transition-colors hover:bg-ink hover:text-paper disabled:opacity-30"
+              >
+                <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
+                Save feedback to lab memory
+              </button>
+            </div>
 
             {/* Sources */}
             {step.source_refs.length > 0 && (

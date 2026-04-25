@@ -23,6 +23,7 @@ const EVENT_META: Record<
   internal_sources_retrieved: { icon: Database, color: "text-ink-soft", label: "Internal RAG" },
   external_sources_retrieved: { icon: Globe, color: "text-ink-soft", label: "Tavily" },
   external_sources_embedded: { icon: Database, color: "text-ink-soft", label: "External RAG" },
+  memory_retrieved: { icon: MessageSquare, color: "text-ochre", label: "Memory" },
   sop_match_scored: { icon: CheckCircle2, color: "text-moss", label: "SOP scored" },
   decision_node_created: { icon: GitBranch, color: "text-rust", label: "Branch" },
   decision_committed: { icon: CheckCircle2, color: "text-moss", label: "Decision" },

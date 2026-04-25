@@ -43,3 +43,28 @@ def append_feedback(feedback: dict[str, Any]) -> None:
 def list_feedback() -> list[dict[str, Any]]:
     return _read_json(settings.feedback_store_path, [])
 
+
+def relevant_feedback(experiment_type: str, hypothesis: str, *, limit: int = 4) -> list[dict[str, Any]]:
+    entries = list_feedback()
+    hypothesis_terms = {
+        token.lower().strip(".,;:()")
+        for token in hypothesis.split()
+        if len(token.strip(".,;:()")) > 4
+    }
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for entry in entries:
+        score = 0.0
+        if entry.get("experiment_type") == experiment_type:
+            score += 2.0
+        feedback_text = " ".join(
+            str(entry.get(key, ""))
+            for key in ["section", "correction", "reason", "step_id"]
+        ).lower()
+        overlap = sum(1 for token in hypothesis_terms if token in feedback_text)
+        score += min(overlap * 0.3, 1.5)
+        if score > 0:
+            scored.append((score, entry))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [entry for _, entry in scored[:limit]]

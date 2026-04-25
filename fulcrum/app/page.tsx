@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Workflow } from "@/types";
-import { compileWorkflow, commitDecision } from "@/lib/api";
+import { compileWorkflow, commitDecision, modifyStep, submitFeedback } from "@/lib/api";
 import { Masthead } from "@/components/Masthead";
 import { HypothesisInput } from "@/components/HypothesisInput";
 import { CompilingOverlay } from "@/components/CompilingOverlay";
@@ -55,6 +55,31 @@ export default function Home() {
     const result = await commitDecision(workflow.workflow_id, stepId, optionId, note);
     setWorkflow(result.workflow);
     setSelectedStepId(null);
+  }
+
+  async function handleModifyStep(stepId: string, instructions: string[], note: string) {
+    if (!workflow) return;
+    const result = await modifyStep(workflow.workflow_id, stepId, instructions, note);
+    setWorkflow(result.workflow);
+  }
+
+  async function handleSubmitFeedback(
+    stepId: string,
+    section: string,
+    rating: number,
+    correction: string,
+    reason: string
+  ) {
+    if (!workflow) return;
+    const result = await submitFeedback(
+      workflow.workflow_id,
+      stepId,
+      section,
+      rating,
+      correction,
+      reason
+    );
+    setWorkflow(result.workflow);
   }
 
   function handleReset() {
@@ -199,6 +224,23 @@ export default function Home() {
                 {/* Sticky sidebar */}
                 <aside className="space-y-8 lg:sticky lg:top-6 lg:self-start">
                   <IntentCard intent={workflow.structured_intent} />
+                  {workflow.memory_used && workflow.memory_used.length > 0 && (
+                    <section className="border border-ochre/40 bg-ochre/5 p-4">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ochre">
+                        Prior lab memory used
+                      </div>
+                      <ul className="mt-3 space-y-2">
+                        {workflow.memory_used.map((memory, i) => (
+                          <li
+                            key={i}
+                            className="border-l border-ochre pl-3 font-display text-[13px] italic leading-[1.45] text-ink-soft"
+                          >
+                            {memory}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
                   <ExecutionTrace trace={workflow.trace} />
                 </aside>
               </div>
@@ -228,6 +270,8 @@ export default function Home() {
         step={selectedStep}
         onClose={() => setSelectedStepId(null)}
         onCommitDecision={handleCommitDecision}
+        onModifyStep={handleModifyStep}
+        onSubmitFeedback={handleSubmitFeedback}
       />
 
       {/* Empty-state footer when no workflow */}

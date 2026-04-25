@@ -151,6 +151,7 @@ export interface TraceEvent {
     | "internal_sources_retrieved"
     | "external_sources_retrieved"
     | "external_sources_embedded"
+    | "memory_retrieved"
     | "sop_match_scored"
     | "decision_node_created"
     | "decision_committed"
@@ -190,6 +191,7 @@ export interface Workflow {
   };
   trace: TraceEvent[];
   sop_recommendations: SopRecommendation[];
+  memory_used?: string[];
   open_decision_count: number;
   created_at: string;
   updated_at: string;
