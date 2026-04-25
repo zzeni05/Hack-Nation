@@ -455,6 +455,44 @@ class StepModifyRequest(BaseModel):
     scientist_note: str | None = None
 
 
+class PlanUpdateRequest(BaseModel):
+    plan: dict
+    scientist_note: str | None = None
+
+
+@app.post("/api/workflows/{workflow_id}/plan")
+async def workflows_update_plan(workflow_id: str, req: PlanUpdateRequest):
+    workflow = get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    required_sections = {"materials", "budget", "timeline", "validation", "risks"}
+    missing = required_sections - set(req.plan.keys())
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Plan missing sections: {', '.join(sorted(missing))}")
+
+    timestamp = datetime.now(UTC).isoformat()
+    workflow["plan"] = {
+        "materials": req.plan.get("materials") or [],
+        "budget": req.plan.get("budget") or [],
+        "timeline": req.plan.get("timeline") or [],
+        "validation": req.plan.get("validation") or [],
+        "risks": req.plan.get("risks") or [],
+    }
+    workflow["updated_at"] = timestamp
+    workflow["trace"].append(
+        {
+            "event_id": f"trace_{uuid4().hex[:8]}",
+            "event_type": "step_modified",
+            "summary": "Scientist curated operational plan sections.",
+            "scientist_note": req.scientist_note,
+            "affected_sections": ["materials", "budget", "timeline", "validation", "risks"],
+            "timestamp": timestamp,
+        }
+    )
+    save_workflow(workflow)
+    return {"workflow": workflow}
+
+
 @app.post("/api/workflows/{workflow_id}/steps/{step_id}/modify")
 async def workflows_modify_step(workflow_id: str, step_id: str, req: StepModifyRequest):
     workflow = get_workflow(workflow_id)
@@ -464,6 +502,13 @@ async def workflows_modify_step(workflow_id: str, step_id: str, req: StepModifyR
         if step["step_id"] == step_id:
             step["instructions"] = req.modified_instructions
             step["scientist_note"] = req.scientist_note
+            if step.get("classification") == "missing_context":
+                step["status"] = "ready"
+                step["rationale"] = (
+                    "Originally created as an uncovered hypothesis-derived gap. "
+                    "A scientist manually authored the operational instructions for this workflow run."
+                )
+                step.setdefault("derivation", {})["resolved_by"] = "scientist_manual_authoring"
             break
     else:
         raise HTTPException(status_code=404, detail="Step not found")

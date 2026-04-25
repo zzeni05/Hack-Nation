@@ -4,7 +4,6 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, BookOpenText, Search, Sparkles } from "lucide-react";
 import { SAMPLE_HYPOTHESES } from "@/lib/samples";
-import { KnowledgeUpload } from "@/components/KnowledgeUpload";
 import type { RetrievalOptions, RetrievalPreviewEvent, RetrievalPreviewSource } from "@/lib/api";
 
 interface Props {
@@ -136,8 +135,6 @@ export function HypothesisInput({ onCompile, onPreviewRetrieval, isCompiling }: 
           </div>
         </div>
       </div>
-
-      <KnowledgeUpload disabled={isCompiling} />
 
       <div className="mt-5 border border-ink/20 bg-paper-deep/20 p-4">
         <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, GitBranch, BookOpen, AlertTriangle, Star, Send, FileEdit, MessageSquare } from "lucide-react";
+import { X, GitBranch, BookOpen, AlertTriangle, Star, Send, FileEdit, MessageSquare, PenLine } from "lucide-react";
 import type { WorkflowStep } from "@/types";
 import { CLASSIFICATION_META, classNames } from "@/lib/display";
 import { getKnowledgeChunk } from "@/lib/api";
@@ -50,6 +50,7 @@ export function StepInspector({
   const [feedbackReason, setFeedbackReason] = useState("");
   const [openChunkId, setOpenChunkId] = useState<string | null>(null);
   const [chunkText, setChunkText] = useState<string>("");
+  const isMissingContext = step?.classification === "missing_context";
 
   useEffect(() => {
     if (step?.classification === "decision_required") {
@@ -142,6 +143,23 @@ export function StepInspector({
                 {step.rationale}
               </p>
             </div>
+
+            {isMissingContext && (
+              <MissingContextPanel
+                step={step}
+                onAuthor={() => {
+                  setEditedInstructions(
+                    [
+                      `Define the operational procedure for: ${step.needed_evidence?.[0] ?? step.title.replace(/^Missing context:\s*/i, "")}.`,
+                      "Specify reagent, concentration or parameter range, timing, controls, equipment, and acceptance criteria.",
+                      "Record why this manual procedure is acceptable for this run.",
+                    ].join("\n")
+                  );
+                  setEditNote("Scientist manually authored missing-context step.");
+                  setIsEditing(true);
+                }}
+              />
+            )}
 
             {/* Decision UI */}
             {step.classification === "decision_required" && step.options && (
@@ -321,7 +339,7 @@ export function StepInspector({
                       value={editNote}
                       onChange={(e) => setEditNote(e.target.value)}
                       rows={2}
-                      placeholder="Why are you modifying this SOP-derived step?"
+                      placeholder={isMissingContext ? "Why is this manually authored procedure acceptable?" : "Why are you modifying this source-derived step?"}
                       className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] placeholder:text-ink-mute/70 focus:border-ink focus:outline-none"
                     />
                     <button
@@ -336,7 +354,7 @@ export function StepInspector({
                       className="mt-3 inline-flex items-center gap-2 bg-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-paper transition-colors hover:bg-rust"
                     >
                       <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Save modification
+                      {isMissingContext ? "Save manual step" : "Save modification"}
                     </button>
                   </div>
                 ) : (
@@ -359,7 +377,7 @@ export function StepInspector({
               <div className="flex items-center gap-2 border-b border-ink pb-2">
                 <MessageSquare className="h-4 w-4" strokeWidth={1.5} />
                 <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink">
-                  Scientist review
+                  {isMissingContext ? "Resolve or teach memory" : "Scientist review"}
                 </span>
               </div>
 
@@ -403,7 +421,7 @@ export function StepInspector({
                   value={feedbackCorrection}
                   onChange={(e) => setFeedbackCorrection(e.target.value)}
                   rows={3}
-                  placeholder="What should future workflows do differently?"
+                  placeholder={isMissingContext ? "Describe the procedure you would add, or how future workflows should resolve this gap." : "What should future workflows do differently?"}
                   className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] placeholder:text-ink-mute/70 focus:border-ink focus:outline-none"
                 />
               </label>
@@ -415,7 +433,7 @@ export function StepInspector({
                   value={feedbackReason}
                   onChange={(e) => setFeedbackReason(e.target.value)}
                   rows={2}
-                  placeholder="Prior lab experience, cost, equipment constraint, reproducibility concern..."
+                  placeholder={isMissingContext ? "Why is manual resolution acceptable here? Prior lab practice, source you know, equipment constraint..." : "Prior lab experience, cost, equipment constraint, reproducibility concern..."}
                   className="mt-1.5 w-full border border-ink/30 bg-paper-deep/30 px-3 py-2 font-display text-[14px] leading-[1.5] placeholder:text-ink-mute/70 focus:border-ink focus:outline-none"
                 />
               </label>
@@ -435,7 +453,7 @@ export function StepInspector({
                 className="mt-3 inline-flex items-center gap-2 border border-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink transition-colors hover:bg-ink hover:text-paper disabled:opacity-30"
               >
                 <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
-                Save feedback to lab memory
+                {isMissingContext ? "Save gap resolution to lab memory" : "Save feedback to lab memory"}
               </button>
             </div>
 
@@ -443,8 +461,13 @@ export function StepInspector({
             {step.source_refs.length > 0 && (
               <div className="mt-6 border-t border-rule pt-4">
                 <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-                  Source references
+                  {isMissingContext ? "Adjacent source references" : "Source references"}
                 </span>
+                {isMissingContext && (
+                  <p className="mt-1 font-display text-[12px] leading-[1.4] text-ink-soft">
+                    These sources may explain nearby operations, but this step is still blocked because none directly supports the missing requirement.
+                  </p>
+                )}
                 <ul className="mt-2 space-y-1.5">
                   {step.source_refs.map((ref) => (
                     <li key={ref.chunk_id} className="grid grid-cols-[80px_1fr] gap-3 font-mono text-[11px]">
@@ -486,6 +509,50 @@ function Stat({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div className="font-mono text-[12px] tabular-nums text-ink">{value}</div>
+    </div>
+  );
+}
+
+function MissingContextPanel({ step, onAuthor }: { step: WorkflowStep; onAuthor: () => void }) {
+  const requirement = step.needed_evidence?.[0] ?? step.derivation?.basis ?? step.title.replace(/^Missing context:\s*/i, "");
+  const resolved = step.derivation?.resolved_by === "scientist_manual_authoring";
+  return (
+    <div className={classNames("mt-6 border p-4", resolved ? "border-moss/40 bg-moss/5" : "border-rust/35 bg-rust/5")}>
+      <div className="flex items-start gap-3">
+        <AlertTriangle className={classNames("mt-0.5 h-4 w-4 shrink-0", resolved ? "text-moss" : "text-rust")} strokeWidth={1.6} />
+        <div className="min-w-0">
+          <div className={classNames("font-mono text-[10px] uppercase tracking-[0.22em]", resolved ? "text-moss" : "text-rust")}>
+            {resolved ? "Manually authored gap" : "Scientist-authored gap"}
+          </div>
+          <p className="mt-2 font-display text-[13px] leading-[1.5] text-ink-soft">
+            {resolved
+              ? "This step began as a hypothesis-derived gap. A scientist has manually supplied operational instructions for this workflow."
+              : "This step was derived from the hypothesis and coverage scoring, not from a retrieved protocol. The system found that the workflow needs this operation, but did not find a source that directly specifies how to run it."}
+          </p>
+          <div className="mt-3 border-l border-rust/50 pl-3">
+            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-mute">
+              Missing requirement
+            </div>
+            <div className="mt-1 font-display text-[14px] leading-[1.4] text-ink">
+              {requirement}
+            </div>
+          </div>
+          {step.derivation?.message && (
+            <p className="mt-3 font-display text-[12px] leading-[1.45] text-ink-soft">
+              {step.derivation.message}
+            </p>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button onClick={onAuthor} className="inline-flex items-center gap-2 bg-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-paper transition-colors hover:bg-rust">
+              <PenLine className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {resolved ? "Edit manual step" : "Manually author this step"}
+            </button>
+            <span className="inline-flex items-center border border-ink/20 px-3 py-2 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-mute">
+              Upload/source later is optional
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

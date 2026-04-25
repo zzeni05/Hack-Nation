@@ -116,6 +116,16 @@ export interface WorkflowStep {
   options?: DecisionOption[];
   selected_option_id?: string | null;
   scientist_note?: string | null;
+  protocol_step_id?: string;
+  operation?: string;
+  hypothesis_requirement?: string | null;
+  needed_evidence?: string[];
+  derivation?: {
+    kind: string;
+    basis: string;
+    message: string;
+    resolved_by?: string;
+  };
   // Only present for historically_modified
   modification_signal?: string;
 }
@@ -133,6 +143,7 @@ export interface MaterialItem {
   category?: string;
   basis?: string;
   needs_user_confirmation?: boolean;
+  confirmed?: boolean;
   gap?: PlanGap;
   source_ref?: SourceRef;
 }
@@ -146,6 +157,7 @@ export interface BudgetLine {
   confidence: "high" | "medium" | "low";
   estimate_type?: string;
   needs_user_confirmation?: boolean;
+  confirmed?: boolean;
   gap?: PlanGap;
 }
 
@@ -155,6 +167,7 @@ export interface TimelinePhase {
   estimate_type?: string;
   basis?: string;
   needs_user_confirmation?: boolean;
+  confirmed?: boolean;
   gap?: PlanGap;
   start_week: number;
   end_week: number;
@@ -176,6 +189,8 @@ export interface ValidationItem {
   controls: string[];
   threshold: string;
   source_ref?: SourceRef;
+  needs_user_confirmation?: boolean;
+  confirmed?: boolean;
 }
 
 export interface RiskItem {
@@ -183,6 +198,8 @@ export interface RiskItem {
   risk: string;
   mitigation: string;
   severity: "low" | "medium" | "high";
+  needs_user_confirmation?: boolean;
+  confirmed?: boolean;
 }
 
 export interface TraceEvent {

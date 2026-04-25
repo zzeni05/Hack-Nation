@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import type { Workflow } from "@/types";
+import { useEffect, useMemo, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { BudgetLine, MaterialItem, RiskItem, TimelinePhase, ValidationItem, Workflow } from "@/types";
 import { formatCurrency, classNames } from "@/lib/display";
-import { Beaker, Coins, CalendarDays, ShieldCheck, AlertOctagon } from "lucide-react";
+import { AlertOctagon, Beaker, CalendarDays, Check, Coins, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
 
 const TABS = [
   { id: "materials", label: "Materials", icon: Beaker },
@@ -15,17 +15,61 @@ const TABS = [
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+type Plan = Workflow["plan"];
 
-export function PlanTabs({ workflow }: { workflow: Workflow }) {
+interface Props {
+  workflow: Workflow;
+  onSavePlan?: (plan: Plan, note?: string) => Promise<void>;
+}
+
+export function PlanTabs({ workflow, onSavePlan }: Props) {
   const [tab, setTab] = useState<TabId>("materials");
+  const [draft, setDraft] = useState<Plan>(() => clonePlan(workflow.plan));
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
 
-  const totalBudget = workflow.plan.budget.reduce((sum, b) => sum + b.total, 0);
-  const totalMaterials = workflow.plan.materials.reduce((sum, m) => sum + m.total, 0);
-  const totalWeeks = Math.max(...workflow.plan.timeline.map((p) => p.end_week));
+  useEffect(() => {
+    setDraft(clonePlan(workflow.plan));
+    setSavedAt(null);
+  }, [workflow.workflow_id, workflow.updated_at]);
+
+  const totals = useMemo(() => {
+    const totalBudget = draft.budget.reduce((sum, b) => sum + numberOrZero(b.total), 0);
+    const totalMaterials = draft.materials.reduce((sum, m) => sum + numberOrZero(m.total), 0);
+    const totalWeeks = Math.max(1, ...draft.timeline.map((p) => numberOrZero(p.end_week)));
+    const confirmCount = [
+      ...draft.materials,
+      ...draft.budget,
+      ...draft.timeline,
+      ...draft.validation,
+      ...draft.risks,
+    ].filter((item) => item.needs_user_confirmation && !item.confirmed).length;
+    return { totalBudget, totalMaterials, totalWeeks, confirmCount };
+  }, [draft]);
+
+  async function save() {
+    if (!onSavePlan) return;
+    setSaving(true);
+    try {
+      await onSavePlan(draft, note.trim() || undefined);
+      setSavedAt(new Date().toLocaleTimeString());
+      setNote("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function confirmAllCurrentTab() {
+    setDraft((current) => ({
+      ...current,
+      [tab]: current[tab].map((item) => confirmItem(item)),
+    }));
+  }
 
   return (
     <section className="relative">
-      <div className="flex items-baseline justify-between gap-3 border-b border-ink pb-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-ink pb-2">
         <div className="flex items-baseline gap-3">
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
             §05
@@ -34,413 +78,381 @@ export function PlanTabs({ workflow }: { workflow: Workflow }) {
             The Operational Plan
           </h2>
         </div>
-        <span className="hidden font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute md:inline">
-          {formatCurrency(totalBudget)} · {totalWeeks}-week schedule
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+          {formatCurrency(totals.totalBudget)} · {totals.totalWeeks}-week schedule · {totals.confirmCount} need confirmation
         </span>
       </div>
 
-      {/* Tab nav */}
-      <div className="mt-5 flex gap-0 border-b border-ink/20">
+      <div className="mt-4 border border-ink/20 bg-paper-deep/20 p-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={confirmAllCurrentTab}
+            className="inline-flex items-center gap-2 border border-moss/50 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-moss hover:bg-moss hover:text-paper"
+          >
+            <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
+            Confirm visible tab
+          </button>
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            className="min-w-[220px] flex-1 border border-ink/20 bg-paper px-3 py-2 font-display text-[13px] focus:outline-none"
+            placeholder="Optional note explaining plan edits"
+          />
+          <button
+            onClick={() => void save()}
+            disabled={!onSavePlan || saving}
+            className="inline-flex items-center gap-2 bg-ink px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-paper hover:bg-rust disabled:opacity-30"
+          >
+            <Save className="h-3.5 w-3.5" strokeWidth={1.5} />
+            {saving ? "Saving" : "Save plan"}
+          </button>
+        </div>
+        <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-ink-mute">
+          Edit extracted items before execution. Confirmed items are kept; removed items are excluded from the saved workflow plan.
+          {savedAt && <span className="text-moss"> Saved {savedAt}</span>}
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-0 border-b border-ink/20">
         {TABS.map((t) => {
           const Icon = t.icon;
           const active = t.id === tab;
+          const needs = draft[t.id].filter((item) => item.needs_user_confirmation && !item.confirmed).length;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={classNames(
                 "relative -mb-px flex items-center gap-2 border-b-2 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
-                active
-                  ? "border-ink text-ink"
-                  : "border-transparent text-ink-mute hover:text-ink"
+                active ? "border-ink text-ink" : "border-transparent text-ink-mute hover:text-ink"
               )}
             >
               <Icon className="h-3.5 w-3.5" strokeWidth={1.5} />
               {t.label}
+              {needs > 0 && <span className="text-ochre">({needs})</span>}
             </button>
           );
         })}
       </div>
 
-      {/* Content */}
       <div className="mt-6">
-        <AnimatePresence mode="wait">
-          {tab === "materials" && (
-            <motion.div
-              key="materials"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <MaterialsTable workflow={workflow} total={totalMaterials} />
-            </motion.div>
-          )}
-          {tab === "budget" && (
-            <motion.div
-              key="budget"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <BudgetView workflow={workflow} total={totalBudget} />
-            </motion.div>
-          )}
-          {tab === "timeline" && (
-            <motion.div
-              key="timeline"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <TimelineView workflow={workflow} totalWeeks={totalWeeks} />
-            </motion.div>
-          )}
-          {tab === "validation" && (
-            <motion.div
-              key="validation"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ValidationView workflow={workflow} />
-            </motion.div>
-          )}
-          {tab === "risks" && (
-            <motion.div
-              key="risks"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <RisksView workflow={workflow} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {tab === "materials" && <MaterialsEditor draft={draft} setDraft={setDraft} total={totals.totalMaterials} />}
+        {tab === "budget" && <BudgetEditor draft={draft} setDraft={setDraft} total={totals.totalBudget} />}
+        {tab === "timeline" && <TimelineEditor draft={draft} setDraft={setDraft} totalWeeks={totals.totalWeeks} />}
+        {tab === "validation" && <ValidationEditor draft={draft} setDraft={setDraft} />}
+        {tab === "risks" && <RisksEditor draft={draft} setDraft={setDraft} />}
       </div>
     </section>
   );
 }
 
-function MaterialsTable({ workflow, total }: { workflow: Workflow; total: number }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full font-display text-[13px]">
-        <thead>
-          <tr className="border-b border-ink text-left">
-            <th className="py-2 pr-3 font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">Item · Purpose</th>
-            <th className="py-2 pr-3 font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">Supplier</th>
-            <th className="py-2 pr-3 font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">Catalog</th>
-            <th className="py-2 pr-3 text-right font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">Qty</th>
-            <th className="py-2 pl-3 text-right font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {workflow.plan.materials.map((m, i) => (
-            <tr key={i} className="border-b border-rule-soft">
-              <td className="py-3 pr-3">
-                <div className="text-ink" style={{ fontWeight: 500 }}>{m.name}</div>
-                <div className="font-mono text-[10px] text-ink-mute">{m.purpose}</div>
-                <EstimateBadge type={m.estimate_type} confirm={m.needs_user_confirmation} />
-                {m.basis && <div className="mt-1 font-display text-[12px] leading-[1.35] text-ink-soft">{m.basis}</div>}
-                {m.gap && <GapInline reason={m.gap.reason} />}
-              </td>
-              <td className="py-3 pr-3 font-mono text-[12px] tabular-nums text-ink-soft">{m.supplier}</td>
-              <td className="py-3 pr-3 font-mono text-[12px] tabular-nums text-ink">{m.catalog}</td>
-              <td className="py-3 pr-3 text-right font-mono text-[12px] tabular-nums text-ink-soft">{m.quantity}</td>
-              <td className="py-3 pl-3 text-right font-mono text-[13px] tabular-nums text-ink">
-                {formatCurrency(m.total)}
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td colSpan={4} className="pt-3 text-right font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-              Materials subtotal
-            </td>
-            <td className="pt-3 pl-3 text-right font-display text-[20px] tabular-nums text-ink" style={{ fontWeight: 500 }}>
-              {formatCurrency(total)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function BudgetView({ workflow, total }: { workflow: Workflow; total: number }) {
-  const max = Math.max(1, ...workflow.plan.budget.map((b) => b.total));
-  return (
-    <div>
-      <div className="mb-6 flex items-baseline justify-between border-b border-ink/20 pb-3">
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-            Total estimated cost
-          </div>
-          <div className="font-display text-[40px] leading-none tabular-nums" style={{ fontWeight: 500 }}>
-            {formatCurrency(total)}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-            {workflow.plan.budget.length} line items · {workflow.plan.materials.length} reagents tracked
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        {workflow.plan.budget.map((b, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="grid grid-cols-[1fr_120px] items-center gap-4"
-          >
-            <div>
-              <div className="flex items-baseline justify-between">
-                <span className="font-display text-[14px]" style={{ fontWeight: 500 }}>
-                  {b.item}
-                </span>
-                <span className="font-mono text-[12px] tabular-nums text-ink">
-                  {formatCurrency(b.total)}
-                </span>
-              </div>
-              <div className="mt-1.5 h-1 w-full bg-rule">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(b.total / max) * 100}%` }}
-                  transition={{ delay: i * 0.05 + 0.2, duration: 0.6, ease: "easeOut" }}
-                  className="h-full bg-ink"
-                />
-              </div>
-              <div className="mt-1 flex items-center gap-2 font-mono text-[10px] text-ink-mute">
-                <span className="border border-ink/20 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.18em]">
-                  {b.category}
-                </span>
-                <span>{b.basis}</span>
-                <span className="ml-auto uppercase tracking-[0.18em]">
-                  conf · {b.confidence}
-                </span>
-              </div>
-              <EstimateBadge type={b.estimate_type} confirm={b.needs_user_confirmation} />
-              {b.gap && <GapInline reason={b.gap.reason} />}
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TimelineView({ workflow, totalWeeks }: { workflow: Workflow; totalWeeks: number }) {
-  return (
-    <div>
-      <div className="mb-6 flex items-baseline justify-between border-b border-ink/20 pb-3">
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-            Total schedule
-          </div>
-          <div className="font-display text-[40px] leading-none tabular-nums" style={{ fontWeight: 500 }}>
-            {totalWeeks} <span className="text-[20px] text-ink-mute">weeks</span>
-          </div>
-        </div>
-        <div className="text-right font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-          {workflow.plan.timeline.filter((t) => t.critical_path).length} critical-path phases
-        </div>
-      </div>
-
-      {/* Week scale */}
-      <div className="relative mb-2 grid font-mono text-[10px] tabular-nums text-ink-mute" style={{ gridTemplateColumns: `220px repeat(${totalWeeks}, 1fr)` }}>
-        <span></span>
-        {Array.from({ length: totalWeeks }).map((_, i) => (
-          <span key={i} className="border-l border-rule pl-1.5">
-            W{i + 1}
-          </span>
-        ))}
-      </div>
-
-      <div className="space-y-1.5">
-        {workflow.plan.timeline.map((phase, i) => {
-          const left = ((phase.start_week - 1) / totalWeeks) * 100;
-          const width = ((phase.end_week - phase.start_week + 1) / totalWeeks) * 100;
-          return (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.06 }}
-              className="grid items-center gap-2"
-              style={{ gridTemplateColumns: `220px 1fr` }}
-            >
-                <div className="font-display text-[13px]">
-                  <div style={{ fontWeight: 500 }}>{phase.phase}</div>
-                  <div className="font-mono text-[10px] text-ink-mute">{phase.duration}</div>
-                  <EstimateBadge type={phase.estimate_type} confirm={phase.needs_user_confirmation} />
-                  {phase.gap && <GapInline reason={phase.gap.reason} />}
-                </div>
-              <div className="relative h-7 border-y border-rule-soft bg-paper-deep/20">
-                {/* Week guides */}
-                {Array.from({ length: totalWeeks - 1 }).map((_, j) => (
-                  <div
-                    key={j}
-                    className="absolute top-0 bottom-0 w-px bg-rule-soft"
-                    style={{ left: `${((j + 1) / totalWeeks) * 100}%` }}
-                  />
-                ))}
-                <motion.div
-                  initial={{ opacity: 0, scaleX: 0 }}
-                  animate={{ opacity: 1, scaleX: 1 }}
-                  transition={{ delay: i * 0.06 + 0.2, duration: 0.5, ease: "easeOut" }}
-                  className={classNames(
-                    "absolute top-1 bottom-1 origin-left flex items-center justify-start px-2 font-mono text-[10px] uppercase tracking-[0.12em]",
-                    phase.critical_path
-                      ? "bg-ink text-paper"
-                      : "border border-ink/30 bg-paper text-ink-soft"
-                  )}
-                  style={{ left: `${left}%`, width: `${width}%` }}
-                >
-                  {phase.critical_path && <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-rust" />}
-                  <span className="truncate">
-                    {phase.duration}
-                  </span>
-                </motion.div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      {/* Legend */}
-      <div className="mt-4 flex items-center gap-4 border-t border-rule pt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-3 bg-ink" /> Critical path
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-3 border border-ink/30 bg-paper" /> Parallel / non-critical
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function GapInline({ reason }: { reason: string }) {
-  return (
-    <div className="mt-1 border-l border-ochre pl-2 font-mono text-[9px] uppercase tracking-[0.14em] text-ochre">
-      Gap · {reason}
-    </div>
-  );
-}
-
-function EstimateBadge({ type, confirm }: { type?: string; confirm?: boolean }) {
-  if (!type) return null;
-  return (
-    <div className="mt-1 flex flex-wrap gap-1 font-mono text-[9px] uppercase tracking-[0.14em]">
-      <span className="border border-ink/20 px-1.5 py-0.5 text-ink-mute">{type.replaceAll("_", " ")}</span>
-      {confirm && <span className="border border-ochre/50 px-1.5 py-0.5 text-ochre">confirm</span>}
-    </div>
-  );
-}
-
-function ValidationView({ workflow }: { workflow: Workflow }) {
-  return (
-    <div className="space-y-4">
-      {workflow.plan.validation.map((v, i) => (
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.06 }}
-          className={classNames(
-            "border bg-paper-deep/30 p-4",
-            v.type === "primary" ? "border-ink" : "border-ink/20"
-          )}
-        >
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="flex items-baseline gap-2">
-              <span
-                className={classNames(
-                  "border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em]",
-                  v.type === "primary"
-                    ? "border-rust bg-rust text-paper"
-                    : "border-ink/30 text-ink-soft"
-                )}
-              >
-                {v.type}
-              </span>
-              <h3 className="font-display text-[18px] tracking-tight" style={{ fontWeight: 500 }}>
-                {v.endpoint}
-              </h3>
-            </div>
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">
-                Assay
-              </div>
-              <div className="mt-0.5 font-display text-[13px]">{v.assay}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">
-                Threshold
-              </div>
-              <div className="mt-0.5 font-display text-[13px]">{v.threshold}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-ink-mute">
-                Controls
-              </div>
-              <div className="mt-0.5 font-display text-[13px]">
-                {v.controls.join(" · ")}
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      ))}
-    </div>
-  );
-}
-
-function RisksView({ workflow }: { workflow: Workflow }) {
-  const severityColors = {
-    high: "border-rust text-rust",
-    medium: "border-ochre text-ochre",
-    low: "border-moss text-moss",
-  };
+function MaterialsEditor({ draft, setDraft, total }: { draft: Plan; setDraft: PlanSetter; total: number }) {
   return (
     <div className="space-y-3">
-      {workflow.plan.risks.map((r, i) => (
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05 }}
-          className="grid grid-cols-[80px_1fr] gap-4 border-b border-rule pb-3"
-        >
-          <div className="space-y-1">
-            <span className={classNames("inline-block border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em]", severityColors[r.severity])}>
-              {r.severity}
-            </span>
-            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-mute">
-              {r.category}
+      <EditorToolbar
+        title={`${draft.materials.length} materials · ${formatCurrency(total)} subtotal`}
+        onAdd={() => setDraft((plan) => ({ ...plan, materials: [...plan.materials, newMaterial()] }))}
+      />
+      <div className="space-y-3">
+        {draft.materials.map((item, index) => (
+          <EditableCard key={index} confirmed={item.confirmed} needsConfirmation={item.needs_user_confirmation} onConfirm={() => updateArray(setDraft, "materials", index, confirmItem)} onRemove={() => removeArrayItem(setDraft, "materials", index)}>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <TextField label="Name" value={item.name} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, name: value }))} className="xl:col-span-2" />
+              <TextField label="Purpose" value={item.purpose} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, purpose: value }))} className="xl:col-span-2" />
+              <TextField label="Supplier" value={item.supplier} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, supplier: value }))} />
+              <TextField label="Catalog" value={item.catalog} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, catalog: value }))} />
+              <TextField label="Quantity" value={item.quantity} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, quantity: value }))} />
+              <NumberField label="Unit cost" value={item.unit_cost} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, unit_cost: value, total: value }))} />
+              <NumberField label="Total" value={item.total} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, total: value }))} />
+              <SelectField label="Confidence" value={item.confidence} options={["high", "medium", "low"]} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, confidence: value as MaterialItem["confidence"] }))} />
             </div>
+            <EvidenceLine basis={item.basis} estimateType={item.estimate_type} gap={item.gap?.reason} />
+          </EditableCard>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BudgetEditor({ draft, setDraft, total }: { draft: Plan; setDraft: PlanSetter; total: number }) {
+  return (
+    <div className="space-y-3">
+      <EditorToolbar title={`${draft.budget.length} budget lines · ${formatCurrency(total)} total`} onAdd={() => setDraft((plan) => ({ ...plan, budget: [...plan.budget, newBudget()] }))} />
+      {draft.budget.map((item, index) => (
+        <EditableCard key={index} confirmed={item.confirmed} needsConfirmation={item.needs_user_confirmation} onConfirm={() => updateArray(setDraft, "budget", index, confirmItem)} onRemove={() => removeArrayItem(setDraft, "budget", index)}>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <TextField label="Item" value={item.item} onChange={(value) => updateArray(setDraft, "budget", index, (b) => ({ ...b, item: value }))} className="xl:col-span-2" />
+            <SelectField label="Category" value={item.category} options={["Reagents", "Consumables", "Equipment", "Personnel", "Overhead"]} onChange={(value) => updateArray(setDraft, "budget", index, (b) => ({ ...b, category: value as BudgetLine["category"] }))} />
+            <TextField label="Quantity" value={item.quantity} onChange={(value) => updateArray(setDraft, "budget", index, (b) => ({ ...b, quantity: value }))} />
+            <NumberField label="Total" value={item.total} onChange={(value) => updateArray(setDraft, "budget", index, (b) => ({ ...b, total: value }))} />
+            <SelectField label="Confidence" value={item.confidence} options={["high", "medium", "low"]} onChange={(value) => updateArray(setDraft, "budget", index, (b) => ({ ...b, confidence: value as BudgetLine["confidence"] }))} />
+            <TextField label="Basis" value={item.basis} onChange={(value) => updateArray(setDraft, "budget", index, (b) => ({ ...b, basis: value }))} className="xl:col-span-6" />
           </div>
-          <div>
-            <div className="font-display text-[14px] leading-[1.4]" style={{ fontWeight: 500 }}>
-              {r.risk}
-            </div>
-            <div className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-              Mitigation
-            </div>
-            <div className="font-display text-[13px] leading-[1.45] text-ink-soft">
-              {r.mitigation}
-            </div>
-          </div>
-        </motion.div>
+          <EvidenceLine estimateType={item.estimate_type} gap={item.gap?.reason} />
+        </EditableCard>
       ))}
     </div>
   );
+}
+
+function TimelineEditor({ draft, setDraft, totalWeeks }: { draft: Plan; setDraft: PlanSetter; totalWeeks: number }) {
+  return (
+    <div className="space-y-3">
+      <EditorToolbar title={`${draft.timeline.length} phases · ${totalWeeks} week schedule`} onAdd={() => setDraft((plan) => ({ ...plan, timeline: [...plan.timeline, newTimeline()] }))} />
+      {draft.timeline.map((phase, index) => (
+        <EditableCard key={index} confirmed={phase.confirmed} needsConfirmation={phase.needs_user_confirmation} onConfirm={() => updateArray(setDraft, "timeline", index, confirmItem)} onRemove={() => removeArrayItem(setDraft, "timeline", index)}>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <TextField label="Phase" value={phase.phase} onChange={(value) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, phase: value }))} className="xl:col-span-2" />
+            <TextField label="Duration" value={phase.duration} onChange={(value) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, duration: value }))} />
+            <NumberField label="Start week" value={phase.start_week} onChange={(value) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, start_week: Math.max(1, Math.round(value)) }))} />
+            <NumberField label="End week" value={phase.end_week} onChange={(value) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, end_week: Math.max(1, Math.round(value)) }))} />
+            <label className="flex items-end gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+              <input type="checkbox" checked={phase.critical_path} onChange={(event) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, critical_path: event.target.checked }))} />
+              Critical path
+            </label>
+            <TextField label="Dependencies" value={phase.dependencies.join(", ")} onChange={(value) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, dependencies: csv(value) }))} className="xl:col-span-3" />
+            <TextField label="Notes" value={phase.notes ?? ""} onChange={(value) => updateArray(setDraft, "timeline", index, (p) => ({ ...p, notes: value }))} className="xl:col-span-3" />
+          </div>
+          <EvidenceLine basis={phase.basis} estimateType={phase.estimate_type} gap={phase.gap?.reason} />
+        </EditableCard>
+      ))}
+    </div>
+  );
+}
+
+function ValidationEditor({ draft, setDraft }: { draft: Plan; setDraft: PlanSetter }) {
+  return (
+    <div className="space-y-3">
+      <EditorToolbar title={`${draft.validation.length} validation items`} onAdd={() => setDraft((plan) => ({ ...plan, validation: [...plan.validation, newValidation()] }))} />
+      {draft.validation.map((item, index) => (
+        <EditableCard key={index} confirmed={item.confirmed} needsConfirmation={item.needs_user_confirmation} onConfirm={() => updateArray(setDraft, "validation", index, confirmItem)} onRemove={() => removeArrayItem(setDraft, "validation", index)}>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <TextField label="Endpoint" value={item.endpoint} onChange={(value) => updateArray(setDraft, "validation", index, (v) => ({ ...v, endpoint: value }))} className="xl:col-span-2" />
+            <SelectField label="Type" value={item.type} options={["primary", "secondary"]} onChange={(value) => updateArray(setDraft, "validation", index, (v) => ({ ...v, type: value as ValidationItem["type"] }))} />
+            <TextField label="Assay" value={item.assay} onChange={(value) => updateArray(setDraft, "validation", index, (v) => ({ ...v, assay: value }))} />
+            <TextField label="Threshold" value={item.threshold} onChange={(value) => updateArray(setDraft, "validation", index, (v) => ({ ...v, threshold: value }))} className="xl:col-span-2" />
+            <TextField label="Controls" value={item.controls.join(", ")} onChange={(value) => updateArray(setDraft, "validation", index, (v) => ({ ...v, controls: csv(value) }))} className="xl:col-span-6" />
+          </div>
+        </EditableCard>
+      ))}
+    </div>
+  );
+}
+
+function RisksEditor({ draft, setDraft }: { draft: Plan; setDraft: PlanSetter }) {
+  return (
+    <div className="space-y-3">
+      <EditorToolbar title={`${draft.risks.length} risks`} onAdd={() => setDraft((plan) => ({ ...plan, risks: [...plan.risks, newRisk()] }))} />
+      {draft.risks.map((item, index) => (
+        <EditableCard key={index} confirmed={item.confirmed} needsConfirmation={item.needs_user_confirmation} onConfirm={() => updateArray(setDraft, "risks", index, confirmItem)} onRemove={() => removeArrayItem(setDraft, "risks", index)}>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <SelectField label="Category" value={item.category} options={["operational", "scientific", "safety"]} onChange={(value) => updateArray(setDraft, "risks", index, (r) => ({ ...r, category: value as RiskItem["category"] }))} />
+            <SelectField label="Severity" value={item.severity} options={["low", "medium", "high"]} onChange={(value) => updateArray(setDraft, "risks", index, (r) => ({ ...r, severity: value as RiskItem["severity"] }))} />
+            <TextField label="Risk" value={item.risk} onChange={(value) => updateArray(setDraft, "risks", index, (r) => ({ ...r, risk: value }))} className="xl:col-span-4" />
+            <TextField label="Mitigation" value={item.mitigation} onChange={(value) => updateArray(setDraft, "risks", index, (r) => ({ ...r, mitigation: value }))} className="xl:col-span-6" />
+          </div>
+        </EditableCard>
+      ))}
+    </div>
+  );
+}
+
+function EditableCard({
+  children,
+  confirmed,
+  needsConfirmation,
+  onConfirm,
+  onRemove,
+}: {
+  children: ReactNode;
+  confirmed?: boolean;
+  needsConfirmation?: boolean;
+  onConfirm: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className={classNames("border bg-paper-deep/30 p-4", confirmed ? "border-moss/40" : needsConfirmation ? "border-ochre/50" : "border-ink/15")}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1 font-mono text-[9px] uppercase tracking-[0.14em]">
+          {confirmed ? (
+            <span className="border border-moss/50 px-1.5 py-0.5 text-moss">confirmed</span>
+          ) : needsConfirmation ? (
+            <span className="border border-ochre/50 px-1.5 py-0.5 text-ochre">needs confirmation</span>
+          ) : (
+            <span className="border border-ink/20 px-1.5 py-0.5 text-ink-mute">unconfirmed</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onConfirm} className="inline-flex items-center gap-1 border border-moss/50 px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-moss hover:bg-moss hover:text-paper">
+            <Check className="h-3 w-3" /> Keep
+          </button>
+          <button onClick={onRemove} className="inline-flex items-center gap-1 border border-rust/40 px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-rust hover:bg-rust hover:text-paper">
+            <Trash2 className="h-3 w-3" /> Remove
+          </button>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EditorToolbar({ title, onAdd }: { title: string; onAdd: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/20 pb-3">
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">{title}</div>
+      <button onClick={onAdd} className="inline-flex items-center gap-2 border border-ink/30 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink hover:border-rust hover:text-rust">
+        <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+        Add item
+      </button>
+    </div>
+  );
+}
+
+function TextField({ label, value, onChange, className }: { label: string; value: string; onChange: (value: string) => void; className?: string }) {
+  return (
+    <label className={classNames("font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute", className)}>
+      {label}
+      <input value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full border border-ink/20 bg-paper px-2 py-2 font-display text-[13px] normal-case tracking-normal text-ink focus:outline-none" />
+    </label>
+  );
+}
+
+function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+      {label}
+      <input type="number" value={Number.isFinite(value) ? value : 0} onChange={(event) => onChange(Number(event.target.value))} className="mt-1 w-full border border-ink/20 bg-paper px-2 py-2 font-mono text-[13px] normal-case tracking-normal text-ink focus:outline-none" />
+    </label>
+  );
+}
+
+function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  return (
+    <label className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+      {label}
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full border border-ink/20 bg-paper px-2 py-2 font-mono text-[12px] text-ink focus:outline-none">
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function EvidenceLine({ basis, estimateType, gap }: { basis?: string; estimateType?: string; gap?: string }) {
+  if (!basis && !estimateType && !gap) return null;
+  return (
+    <div className="mt-3 border-t border-rule pt-2 font-display text-[12px] leading-[1.35] text-ink-soft">
+      {estimateType && <span className="mr-2 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-mute">{estimateType.replaceAll("_", " ")}</span>}
+      {basis}
+      {gap && <span className="block font-mono text-[9px] uppercase tracking-[0.14em] text-ochre">Gap · {gap}</span>}
+    </div>
+  );
+}
+
+type PlanSetter = Dispatch<SetStateAction<Plan>>;
+type PlanArrayKey = "materials" | "budget" | "timeline" | "validation" | "risks";
+
+function updateArray<K extends PlanArrayKey>(
+  setDraft: PlanSetter,
+  key: K,
+  index: number,
+  updater: (item: Plan[K][number]) => Plan[K][number]
+) {
+  setDraft((plan) => ({
+    ...plan,
+    [key]: plan[key].map((item, i) => (i === index ? updater(item) : item)),
+  }));
+}
+
+function removeArrayItem<K extends PlanArrayKey>(setDraft: PlanSetter, key: K, index: number) {
+  setDraft((plan) => ({ ...plan, [key]: plan[key].filter((_, i) => i !== index) }));
+}
+
+function confirmItem<T extends { needs_user_confirmation?: boolean; confirmed?: boolean }>(item: T): T {
+  return { ...item, needs_user_confirmation: false, confirmed: true };
+}
+
+function clonePlan(plan: Plan): Plan {
+  return {
+    materials: plan.materials.map((item) => ({ ...item, gap: item.gap ? { ...item.gap, resolution_options: [...item.gap.resolution_options] } : undefined })),
+    budget: plan.budget.map((item) => ({ ...item, gap: item.gap ? { ...item.gap, resolution_options: [...item.gap.resolution_options] } : undefined })),
+    timeline: plan.timeline.map((item) => ({ ...item, dependencies: [...item.dependencies], gap: item.gap ? { ...item.gap, resolution_options: [...item.gap.resolution_options] } : undefined })),
+    validation: plan.validation.map((item) => ({ ...item, controls: [...item.controls] })),
+    risks: plan.risks.map((item) => ({ ...item })),
+  };
+}
+
+function csv(value: string): string[] {
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function numberOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function newMaterial(): MaterialItem {
+  return {
+    name: "New material",
+    purpose: "",
+    supplier: "",
+    catalog: "",
+    quantity: "",
+    unit_cost: 0,
+    total: 0,
+    confidence: "low",
+    estimate_type: "scientist_added",
+    confirmed: false,
+    needs_user_confirmation: true,
+  };
+}
+
+function newBudget(): BudgetLine {
+  return {
+    item: "New budget line",
+    category: "Reagents",
+    quantity: "",
+    total: 0,
+    basis: "Scientist added during plan curation.",
+    confidence: "low",
+    estimate_type: "scientist_added",
+    confirmed: false,
+    needs_user_confirmation: true,
+  };
+}
+
+function newTimeline(): TimelinePhase {
+  return {
+    phase: "New phase",
+    duration: "1 week",
+    start_week: 1,
+    end_week: 1,
+    dependencies: [],
+    critical_path: false,
+    notes: "",
+    estimate_type: "scientist_added",
+    confirmed: false,
+    needs_user_confirmation: true,
+  };
+}
+
+function newValidation(): ValidationItem {
+  return {
+    endpoint: "New endpoint",
+    type: "secondary",
+    assay: "",
+    controls: [],
+    threshold: "",
+    confirmed: false,
+    needs_user_confirmation: true,
+  };
+}
+
+function newRisk(): RiskItem {
+  return {
+    category: "operational",
+    severity: "medium",
+    risk: "New risk",
+    mitigation: "",
+    confirmed: false,
+    needs_user_confirmation: true,
+  };
 }

@@ -14,6 +14,7 @@ interface Props {
   onCompleteStep: (stepId: string, operatorNote: string, deviationNote: string, actuals: Record<string, unknown>) => Promise<void>;
   onAddAttachment: (stepId: string, filename: string, note: string, contentType?: string) => Promise<void>;
   onCompleteRun: () => Promise<void>;
+  onActiveStepChange?: (stepId: string | null) => void;
 }
 
 export function ExecutionWorkspace({
@@ -25,6 +26,7 @@ export function ExecutionWorkspace({
   onCompleteStep,
   onAddAttachment,
   onCompleteRun,
+  onActiveStepChange,
 }: Props) {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [operatorNote, setOperatorNote] = useState("");
@@ -45,6 +47,10 @@ export function ExecutionWorkspace({
     setDeviationNote(runStep.deviation_note ?? "");
     setActualsText(Object.keys(runStep.actuals ?? {}).length ? JSON.stringify(runStep.actuals, null, 2) : "");
   }, [runStep?.step_id]);
+
+  useEffect(() => {
+    onActiveStepChange?.(workflowStep?.step_id ?? null);
+  }, [onActiveStepChange, workflowStep?.step_id]);
 
   async function withBusy(action: () => Promise<void>) {
     setBusy(true);

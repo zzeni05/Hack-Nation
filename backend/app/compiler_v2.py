@@ -724,18 +724,29 @@ def assemble_steps_from_base_protocol(
             if step_mapping and step_mapping.get("classification")
             else classify_protocol_step(protocol_step)
         )
+        mapped_missing_with_source = classification == "missing_context" and protocol_step.get("source_refs")
+        if mapped_missing_with_source:
+            classification = (
+                "adapted_from_sop"
+                if protocol_step["source_refs"][0].get("source_type", "").startswith("internal")
+                else "external_literature_supported"
+            )
         steps.append(
             {
                 "step_id": f"step_{idx:03d}",
                 "order": idx,
                 "title": protocol_step["title"],
                 "classification": classification,
-                "status": "blocked" if classification == "missing_context" else "ready",
+                "status": "ready",
                 "source_refs": protocol_step["source_refs"],
                 "rationale": (
+                    build_partial_support_rationale(protocol_step, step_mapping)
+                    if mapped_missing_with_source
+                    else (
                     step_mapping.get("reason")
                     if step_mapping and step_mapping.get("reason")
                     else build_step_rationale(protocol_step, classification)
+                    )
                 ),
                 "instructions": protocol_text_to_instructions(protocol_step["text"]),
                 "depends_on": [f"step_{idx - 1:03d}"] if idx > 1 else [],
@@ -764,11 +775,25 @@ def build_step_rationale(step: dict[str, Any], classification: str) -> str:
         return f"Imported directly from {step['source_refs'][0]['source_name']} because the operation is reusable for this hypothesis."
     if classification == "adapted_from_sop":
         return f"Imported from {step['source_refs'][0]['source_name']} but marked for adaptation because the hypothesis changes intervention or parameters."
+    if classification == "external_literature_supported":
+        return f"Imported from {step['source_refs'][0]['source_name']} because it provides external protocol evidence for this operation."
     if classification == "facility_constraint":
         return "Imported from facility/equipment context because this constrains how the experiment can be run."
     if classification == "historically_modified":
         return "Imported from runbook context and flagged because prior runs or feedback commonly modify this step."
     return "Compiled from retrieved protocol evidence."
+
+
+def build_partial_support_rationale(step: dict[str, Any], mapping: dict[str, Any] | None) -> str:
+    source_name = step.get("source_refs", [{}])[0].get("source_name", "a retrieved source")
+    requirement = (mapping or {}).get("hypothesis_requirement")
+    needed = (mapping or {}).get("needed_evidence") or []
+    suffix = ""
+    if requirement:
+        suffix = f" It is adjacent to the hypothesis requirement: {requirement}."
+    if needed:
+        suffix += f" Still needs scientist confirmation for: {', '.join(needed)}."
+    return f"Derived from {source_name}, but not treated as exact reuse because the source only partially covers the hypothesis-specific operation.{suffix}"
 
 
 def protocol_text_to_instructions(text: str) -> list[str]:
@@ -816,12 +841,23 @@ def inject_gap_and_decision_steps(
                     "classification": "missing_context",
                     "status": "blocked",
                     "source_refs": [],
-                    "rationale": "No retrieved protocol source supports this requirement yet.",
+                    "rationale": (
+                        "Created from a hypothesis requirement that remained uncovered after internal and external retrieval. "
+                        "This is not a source-backed protocol step; it is a scientist-actionable gap that should be manually authored, "
+                        "resolved through a decision, or supported by a newly added source."
+                    ),
                     "instructions": [
-                        f"Retrieve or upload a protocol/source that specifies: {gap}."
+                        f"Manually define the operational procedure for: {gap}.",
+                        "Record the chosen reagent, concentration or parameter range, timing, controls, and acceptance criteria.",
+                        "If you have supporting lab knowledge or a source, add it as a note or upload it later so future workflows can reuse it.",
                     ],
                     "depends_on": [steps[-1]["step_id"]] if steps else [],
                     "needed_evidence": [gap],
+                    "derivation": {
+                        "kind": "hypothesis_gap",
+                        "basis": gap,
+                        "message": "Derived from structured intent and protocol-coverage scoring, not from a retrieved protocol step.",
+                    },
                 }
             )
         next_order += 1

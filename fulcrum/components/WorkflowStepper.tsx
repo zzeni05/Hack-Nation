@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import type { WorkflowStep } from "@/types";
 import { CLASSIFICATION_META, classNames } from "@/lib/display";
-import { GitBranch, Check } from "lucide-react";
+import { GitBranch, Check, PenLine } from "lucide-react";
 
 interface Props {
   steps: WorkflowStep[];
@@ -46,6 +46,8 @@ export function WorkflowStepper({ steps, selectedStepId, onSelectStep }: Props) 
           const meta = CLASSIFICATION_META[step.classification];
           const isSelected = selectedStepId === step.step_id;
           const isDecision = step.classification === "decision_required";
+          const isMissing = step.classification === "missing_context";
+          const isManuallyAuthored = isMissing && step.derivation?.resolved_by === "scientist_manual_authoring";
           const isOpen = step.status === "needs_user_choice";
           const isComplete = step.status === "complete";
 
@@ -75,6 +77,8 @@ export function WorkflowStepper({ steps, selectedStepId, onSelectStep }: Props) 
                   <Check className="h-5 w-5" strokeWidth={2} />
                 ) : isDecision ? (
                   <GitBranch className="h-5 w-5" strokeWidth={1.5} />
+                ) : isMissing ? (
+                  <PenLine className="h-5 w-5" strokeWidth={1.5} />
                 ) : (
                   <span className="font-mono text-[15px] tabular-nums">
                     {String(step.order).padStart(2, "0")}
@@ -116,6 +120,11 @@ export function WorkflowStepper({ steps, selectedStepId, onSelectStep }: Props) 
                           Pattern detected
                         </span>
                       )}
+                      {isMissing && (
+                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-rust">
+                          {isManuallyAuthored ? "Manually authored" : "Needs manual authoring"}
+                        </span>
+                      )}
                     </div>
                     <h3 className="mt-1.5 font-display text-[18px] leading-[1.2] tracking-tight">
                       {step.title}
@@ -125,7 +134,14 @@ export function WorkflowStepper({ steps, selectedStepId, onSelectStep }: Props) 
                         ◆ {step.modification_signal.split(".")[0]}.
                       </p>
                     )}
-                    {step.source_refs.length > 0 && (
+                    {isMissing && (
+                      <p className="mt-1 font-display text-[12px] leading-[1.35] text-ink-soft">
+                        {isManuallyAuthored
+                          ? "Originally derived from hypothesis coverage analysis; scientist-authored instructions are now attached."
+                          : "Derived from hypothesis coverage analysis; no direct source-backed procedure found."}
+                      </p>
+                    )}
+                    {!isMissing && step.source_refs.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-ink-mute">
                         {step.source_refs.slice(0, 3).map((ref, idx) => (
                           <span key={idx} className="inline-flex items-center gap-1">

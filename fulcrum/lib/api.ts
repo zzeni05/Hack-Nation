@@ -315,6 +315,20 @@ export async function modifyStep(
   });
 }
 
+export async function updateWorkflowPlan(
+  workflowId: string,
+  plan: Workflow["plan"],
+  scientistNote?: string
+): Promise<{ workflow: Workflow }> {
+  return apiFetch<{ workflow: Workflow }>(`/api/workflows/${workflowId}/plan`, {
+    method: "POST",
+    body: JSON.stringify({
+      plan,
+      scientist_note: scientistNote ?? null,
+    }),
+  });
+}
+
 export async function uploadKnowledgeFiles(files: File[]): Promise<{
   documents_ingested: number;
   chunks_created: number;
