@@ -152,6 +152,7 @@ export interface TraceEvent {
     | "external_sources_retrieved"
     | "external_sources_embedded"
     | "memory_retrieved"
+    | "protocol_candidates_parsed"
     | "sop_match_scored"
     | "decision_node_created"
     | "decision_committed"
@@ -192,6 +193,14 @@ export interface Workflow {
   trace: TraceEvent[];
   sop_recommendations: SopRecommendation[];
   memory_used?: string[];
+  protocol_basis?: {
+    base_protocol_name: string;
+    base_protocol_score: number;
+    candidate_count: number;
+    imported_steps: number;
+    adapted_steps: number;
+    gap_filled_steps: number;
+  };
   open_decision_count: number;
   created_at: string;
   updated_at: string;

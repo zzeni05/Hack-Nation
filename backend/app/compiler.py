@@ -282,8 +282,13 @@ def commit_decision(workflow: dict[str, Any], step_id: str, selected_option_id: 
 
 
 def apply_intracellular_loading_updates(workflow: dict[str, Any]) -> None:
+    updated_target = False
     for step in workflow["steps"]:
-        if step["step_id"] == "step_005":
+        title = step.get("title", "").lower()
+        operation = step.get("operation")
+        is_template_loading_step = step["step_id"] == "step_005" and "load" in title
+        is_protocol_loading_step = operation in {"cryoprotectant_preparation", "equilibration_vialing"}
+        if is_template_loading_step or is_protocol_loading_step:
             step["instructions"] = [
                 "Pre-incubate HeLa aliquots in 0.2 M trehalose loading medium for 4 hours at 37°C.",
                 "Rinse once with complete medium to reduce extracellular carryover.",
@@ -291,6 +296,32 @@ def apply_intracellular_loading_updates(workflow: dict[str, Any]) -> None:
                 "Transfer to labeled cryovials; document loading branch and timing in trace.",
             ]
             step["rationale"] = "Recompiled after scientist selected intracellular trehalose loading."
+            updated_target = True
+            break
+    if not updated_target:
+        workflow["steps"].append(
+            {
+                "step_id": f"step_loading_{uuid4().hex[:6]}",
+                "order": len(workflow["steps"]) + 1,
+                "title": "Pre-freeze intracellular trehalose loading",
+                "classification": "adapted_from_sop",
+                "status": "ready",
+                "source_refs": [
+                    {
+                        "chunk_id": "external_eroglu_2000",
+                        "source_name": "Eroglu et al. 2000",
+                        "source_type": "external_paper",
+                    }
+                ],
+                "rationale": "Inserted during recompilation after scientist selected intracellular trehalose loading.",
+                "instructions": [
+                    "Pre-incubate HeLa aliquots in 0.2 M trehalose loading medium for 4 hours at 37°C.",
+                    "Rinse once with complete medium to reduce extracellular carryover.",
+                    "Proceed to selected cryoprotectant equilibration and vialing.",
+                ],
+                "depends_on": [],
+            }
+        )
     workflow["plan"]["materials"].append(
         {
             "name": "Osmolality check consumables",

@@ -10,7 +10,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
 from app.compiler import commit_decision as compile_committed_decision
-from app.compiler import compile_workflow, extract_structured_intent
+from app.compiler import extract_structured_intent
+from app.compiler_v2 import compile_from_protocol_candidates
 from app.knowledge import (
     ingest_external_sources,
     ingest_internal_knowledge,
@@ -157,7 +158,7 @@ async def workflows_compile(req: CompileWorkflowRequest):
         structured_intent.get("experiment_type", "unknown"),
         req.hypothesis,
     )
-    workflow = compile_workflow(
+    workflow = await compile_from_protocol_candidates(
         req.hypothesis,
         context,
         prior_feedback=feedback,

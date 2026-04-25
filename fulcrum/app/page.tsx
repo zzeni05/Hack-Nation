@@ -241,6 +241,22 @@ export default function Home() {
                       </ul>
                     </section>
                   )}
+                  {workflow.protocol_basis && (
+                    <section className="border border-moss/40 bg-moss/5 p-4">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-moss">
+                        Protocol basis
+                      </div>
+                      <h3 className="mt-2 font-display text-[18px] leading-tight tracking-tight">
+                        {workflow.protocol_basis.base_protocol_name}
+                      </h3>
+                      <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">
+                        <span>Score {Math.round(workflow.protocol_basis.base_protocol_score * 100)}%</span>
+                        <span>{workflow.protocol_basis.candidate_count} candidates</span>
+                        <span>{workflow.protocol_basis.imported_steps} imported</span>
+                        <span>{workflow.protocol_basis.gap_filled_steps} gap-filled</span>
+                      </div>
+                    </section>
+                  )}
                   <ExecutionTrace trace={workflow.trace} />
                 </aside>
               </div>
