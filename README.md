@@ -47,3 +47,4 @@ Frontend at http://localhost:5173, backend at http://localhost:8000.
 
 - `CHALLENGE_PATTERNS.md` — four generic architectures; map the challenge onto one
 - `DEMO_SCRIPT.md` — video recording template for Sunday morning
+-Update
