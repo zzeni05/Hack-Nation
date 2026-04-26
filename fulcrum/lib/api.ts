@@ -3,13 +3,20 @@ import type { ExecutionRun, Workflow } from "@/types";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not reach backend API at ${API_URL}${path}. The backend may have crashed, restarted, or been blocked by CORS. ${error instanceof Error ? error.message : ""}`.trim()
+    );
+  }
 
   if (!res.ok) {
     const body = await res.text();

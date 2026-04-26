@@ -108,7 +108,7 @@ async def compile_from_protocol_candidates(
         total=len(protocols),
     )
     scored = await score_protocols(protocols, intent, hypothesis, prior_feedback or [], progress=progress)
-    base = scored[0]["protocol"] if scored and scored[0]["fit_score"] >= 0.6 else None
+    base = scored[0]["protocol"] if scored and scored[0]["fit_score"] >= 0.5 else None
     timestamp = now_iso()
 
     workflow = {
@@ -143,7 +143,7 @@ async def compile_from_protocol_candidates(
         workflow["sop_match"] = build_protocol_sop_match(scored[0])
     else:
         best_reason = (
-            f"Best candidate was {scored[0]['protocol']['source_name']} at {round(scored[0]['fit_score'] * 100)}% readiness, below the 60% threshold for executable workflow assembly."
+            f"Best candidate was {scored[0]['protocol']['source_name']} at {round(scored[0]['fit_score'] * 100)}% readiness, below the 50% threshold for executable workflow assembly."
             if scored else
             "No uploaded internal SOP/runbook or external protocol source could be parsed into protocol candidates."
         )

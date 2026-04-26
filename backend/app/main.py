@@ -539,12 +539,6 @@ async def workflows_update_plan(workflow_id: str, req: PlanUpdateRequest):
         }
     )
     save_workflow(workflow)
-    index_scientist_memory(
-        workflow,
-        "Run preparation checklist",
-        json.dumps(workflow["run_preparation"], indent=2),
-        memory_kind="run_preparation",
-    )
     return {"workflow": workflow}
 
 
@@ -571,19 +565,12 @@ async def workflows_update_run_preparation(workflow_id: str, req: RunPrepUpdateR
         }
     )
     save_workflow(workflow)
-    if any(step.get("step_id") == step_id and step.get("derivation", {}).get("resolved_by") == "scientist_manual_authoring" for step in workflow.get("steps", [])):
-        index_scientist_memory(
-            workflow,
-            f"Manual missing-context resolution {step_id}",
-            "\n".join(
-                [
-                    f"Scientist manually authored missing-context step {step_id}.",
-                    f"Instructions: {req.modified_instructions}",
-                    f"Scientist note: {req.scientist_note or ''}",
-                ]
-            ),
-            memory_kind="manual_missing_context_resolution",
-        )
+    index_scientist_memory(
+        workflow,
+        "Run preparation checklist",
+        json.dumps(workflow["run_preparation"], indent=2),
+        memory_kind="run_preparation",
+    )
     return {"workflow": workflow}
 
 
@@ -620,6 +607,19 @@ async def workflows_modify_step(workflow_id: str, step_id: str, req: StepModifyR
         }
     )
     save_workflow(workflow)
+    if any(step.get("step_id") == step_id and step.get("derivation", {}).get("resolved_by") == "scientist_manual_authoring" for step in workflow.get("steps", [])):
+        index_scientist_memory(
+            workflow,
+            f"Manual missing-context resolution {step_id}",
+            "\n".join(
+                [
+                    f"Scientist manually authored missing-context step {step_id}.",
+                    f"Instructions: {req.modified_instructions}",
+                    f"Scientist note: {req.scientist_note or ''}",
+                ]
+            ),
+            memory_kind="manual_missing_context_resolution",
+        )
     return {"workflow": workflow}
 
 
