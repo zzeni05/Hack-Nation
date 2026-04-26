@@ -1066,7 +1066,7 @@ function buildDefaultRunPreparation(workflow: Workflow): RunPreparation {
       label: material.name,
       category: "material",
       status: material.confirmed ? "confirmed" : "needs_review",
-      rationale: `${material.quantity || "Quantity unspecified"} · ${material.supplier || "supplier not set"} · ${material.catalog || "catalog not set"} · estimated ${formatMoney(material.total)}. Confirm inventory, acceptable substitute, or ordering path before execution.`,
+      rationale: `${material.quantity || "Quantity unspecified"} · ${material.supplier || "supplier not set"} · ${material.catalog || "catalog not set"} · estimated ${formatMoney(material.total)}. Price source: ${material.price_source ?? "not recorded"}${material.quote_date ? `, quote/source date ${material.quote_date}` : ""}. Confirm inventory, acceptable substitute, pack size, and current ordering path before execution.`,
       links: materialOrderLinks(material),
       source_ref: material.source_ref,
     })),
@@ -1188,7 +1188,13 @@ function buildApprovalItems(workflow: Workflow, totalBudget: number): RunPrepara
   return items;
 }
 
-function materialOrderLinks(material: { name: string; supplier?: string; catalog?: string }) {
+function materialOrderLinks(material: { name: string; supplier?: string; catalog?: string; catalog_url?: string | null; supplier_search_url?: string | null }) {
+  const directLinks = [];
+  if (material.catalog_url) directLinks.push({ label: "Catalog/source URL", url: material.catalog_url });
+  if (material.supplier_search_url && material.supplier_search_url !== material.catalog_url) {
+    directLinks.push({ label: "Supplier search", url: material.supplier_search_url });
+  }
+  if (directLinks.length) return directLinks;
   const query = encodeURIComponent(`${material.name} ${material.catalog ?? ""}`.trim());
   const supplier = (material.supplier ?? "").toLowerCase();
   const links = [];

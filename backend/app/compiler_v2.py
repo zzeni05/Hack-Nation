@@ -939,7 +939,7 @@ def commit_decision_source_grounded(
         [step for step in updated.get("steps", []) if step.get("status") == "needs_user_choice"]
     )
     updated["updated_at"] = now_iso()
-    updated["plan"] = derive_plan_from_workflow(updated)
+    updated["plan"] = compile_plan(updated)
     updated["validation_report"] = validate_workflow(updated)
     updated["trace"].append(
         {

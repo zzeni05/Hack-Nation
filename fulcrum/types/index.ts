@@ -147,6 +147,12 @@ export interface MaterialItem {
   basis?: string;
   needs_user_confirmation?: boolean;
   confirmed?: boolean;
+  catalog_url?: string | null;
+  supplier_search_url?: string | null;
+  quote_date?: string;
+  price_source?: string;
+  procurement_status?: string;
+  procurement_notes?: string;
   gap?: PlanGap;
   source_ref?: SourceRef;
 }
@@ -161,6 +167,8 @@ export interface BudgetLine {
   estimate_type?: string;
   needs_user_confirmation?: boolean;
   confirmed?: boolean;
+  quote_date?: string;
+  price_source?: string;
   gap?: PlanGap;
 }
 

@@ -165,8 +165,18 @@ function MaterialsEditor({ draft, setDraft, total }: { draft: Plan; setDraft: Pl
               <NumberField label="Unit cost" value={item.unit_cost} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, unit_cost: value, total: value }))} />
               <NumberField label="Total" value={item.total} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, total: value }))} />
               <SelectField label="Confidence" value={item.confidence} options={["high", "medium", "low"]} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, confidence: value as MaterialItem["confidence"] }))} />
+              <TextField label="Catalog URL" value={item.catalog_url ?? ""} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, catalog_url: value }))} className="xl:col-span-3" />
+              <TextField label="Price source" value={item.price_source ?? ""} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, price_source: value }))} />
+              <TextField label="Quote date" value={item.quote_date ?? ""} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, quote_date: value }))} />
+              <TextField label="Procurement status" value={item.procurement_status ?? ""} onChange={(value) => updateArray(setDraft, "materials", index, (m) => ({ ...m, procurement_status: value }))} />
             </div>
+            {item.catalog_url && (
+              <a href={item.catalog_url} target="_blank" rel="noreferrer" className="mt-3 inline-block font-mono text-[9px] uppercase tracking-[0.14em] text-rust">
+                Open supplier/catalog link
+              </a>
+            )}
             <EvidenceLine basis={item.basis} estimateType={item.estimate_type} gap={item.gap?.reason} />
+            {item.procurement_notes && <div className="mt-2 font-display text-[12px] leading-[1.35] text-ink-soft">{item.procurement_notes}</div>}
           </EditableCard>
         ))}
       </div>
@@ -402,6 +412,10 @@ function newMaterial(): MaterialItem {
     estimate_type: "scientist_added",
     confirmed: false,
     needs_user_confirmation: true,
+    price_source: "scientist_added",
+    quote_date: new Date().toISOString().slice(0, 10),
+    procurement_status: "needs_confirmation",
+    procurement_notes: "Scientist-added material; confirm supplier URL, quote, and catalog before ordering.",
   };
 }
 

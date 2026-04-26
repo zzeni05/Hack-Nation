@@ -8,6 +8,7 @@ inferred or estimated item carries a provenance mode and assumptions.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -147,6 +148,7 @@ def add_material(
         "needs_user_confirmation": estimate_type not in {"source_exact"},
         "gap": gap,
         "source_ref": source_ref,
+        **procurement_metadata(name, source_ref, unit_cost, estimate_type),
     }
 
 
@@ -165,6 +167,8 @@ def compile_budget(materials: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "needs_user_confirmation": item.get("needs_user_confirmation", True),
                 "gap": item.get("gap"),
                 "source_ref": item.get("source_ref"),
+                "price_source": item.get("price_source"),
+                "quote_date": item.get("quote_date"),
             }
         )
     return budget
@@ -344,6 +348,56 @@ def infer_supplier(name: str) -> str:
     return "Local supplier"
 
 
+def procurement_metadata(
+    name: str,
+    source_ref: dict[str, Any] | None,
+    unit_cost: float | int,
+    estimate_type: str,
+) -> dict[str, Any]:
+    supplier = infer_supplier(name)
+    source_url = (source_ref or {}).get("source_url")
+    is_supplier_doc = (source_ref or {}).get("source_type") == "supplier_doc"
+    search_url = supplier_search_url(supplier, name)
+    catalog_url = source_url if is_supplier_doc and source_url else search_url
+    price_source = (
+        "retrieved_supplier_document"
+        if is_supplier_doc and source_url
+        else "internal_estimate_table"
+        if unit_cost
+        else "not_available"
+    )
+    return {
+        "catalog_url": catalog_url,
+        "supplier_search_url": search_url,
+        "quote_date": datetime.now(UTC).date().isoformat(),
+        "price_source": price_source,
+        "procurement_status": "needs_confirmation" if estimate_type != "source_exact" else "source_backed",
+        "procurement_notes": (
+            "Supplier URL came from a retrieved supplier document; confirm catalog, pack size, and current price before ordering."
+            if is_supplier_doc and source_url
+            else "Ordering link is a supplier search URL and price is an estimate; confirm catalog, pack size, and current quote before ordering."
+        ),
+    }
+
+
+def supplier_search_url(supplier: str, name: str) -> str:
+    query = re.sub(r"\s+", "%20", name.strip())
+    lower = supplier.lower()
+    if "promega" in lower:
+        return f"https://www.promega.com/search/?q={query}"
+    if "thermo" in lower:
+        return f"https://www.thermofisher.com/search/results?keyword={query}"
+    if "sigma" in lower or "millipore" in lower:
+        return f"https://www.sigmaaldrich.com/US/en/search/{query}"
+    if "qiagen" in lower:
+        return f"https://www.qiagen.com/us/search?query={query}"
+    if "atcc" in lower:
+        return f"https://www.atcc.org/search#q={query}"
+    if "addgene" in lower:
+        return f"https://www.addgene.org/search/advanced/?q={query}"
+    return f"https://www.google.com/search?q={query}%20scientific%20supplier"
+
+
 def estimate_basis(estimate_type: str) -> str:
     mapping = {
         "source_exact": "Explicitly present in retrieved source.",
@@ -379,4 +433,10 @@ def unresolved_material_gap() -> dict[str, Any]:
             ],
         },
         "source_ref": None,
+        "catalog_url": None,
+        "supplier_search_url": None,
+        "quote_date": datetime.now(UTC).date().isoformat(),
+        "price_source": "not_available",
+        "procurement_status": "needs_supplier",
+        "procurement_notes": "No material-specific supplier was inferred. Enter supplier/catalog before ordering.",
     }

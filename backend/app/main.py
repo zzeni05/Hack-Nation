@@ -22,7 +22,7 @@ from app.run_store import add_step_attachment, complete_run, create_run, get_run
 from app.sop_improvement import generate_sop_recommendations
 from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
 from app.tavily_search import RetrievalConfig, discover_external_sources, generate_tavily_queries, source_to_dict
-from app.vector_store import get_chunk, stats as vector_stats
+from app.vector_store import get_chunk, stats as vector_stats, upsert_document
 
 app = FastAPI(title="Hackathon Backend", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
@@ -70,6 +70,31 @@ async def debug_runtime():
         },
         "vector_stats": vector_stats(),
     }
+
+
+def index_scientist_memory(
+    workflow: dict,
+    title: str,
+    text: str,
+    *,
+    memory_kind: str,
+) -> None:
+    experiment_type = workflow.get("structured_intent", {}).get("experiment_type", "unknown")
+    workflow_id = workflow.get("workflow_id", "unknown_workflow")
+    upsert_document(
+        f"{memory_kind} {workflow_id} {title}",
+        text,
+        {
+            "source_type": "scientist_note",
+            "source_origin": "prior_run",
+            "is_user_provided": True,
+            "priority": "internal",
+            "path": f"workflow://{workflow_id}/{memory_kind}",
+            "experiment_type": experiment_type,
+            "workflow_id": workflow_id,
+            "memory_kind": memory_kind,
+        },
+    )
 
 
 class ChatRequest(BaseModel):
@@ -449,6 +474,23 @@ async def workflows_commit_decision(workflow_id: str, req: CommitDecisionRequest
         req.custom_branch,
     )
     save_workflow(updated)
+    if req.selected_option_id == "custom_branch" and req.custom_branch:
+        index_scientist_memory(
+            updated,
+            f"Custom decision branch {req.step_id}",
+            "\n".join(
+                [
+                    f"Scientist authored a custom decision branch for workflow {workflow_id}.",
+                    f"Decision step: {req.step_id}",
+                    f"Branch label: {req.custom_branch.get('label', '')}",
+                    f"Instructions: {req.custom_branch.get('summary', '')}",
+                    f"Tradeoffs: {req.custom_branch.get('tradeoffs', [])}",
+                    f"Risks: {req.custom_branch.get('risks', [])}",
+                    f"Scientist note: {req.scientist_note or ''}",
+                ]
+            ),
+            memory_kind="custom_decision_branch",
+        )
     return {"workflow": updated}
 
 
@@ -497,6 +539,12 @@ async def workflows_update_plan(workflow_id: str, req: PlanUpdateRequest):
         }
     )
     save_workflow(workflow)
+    index_scientist_memory(
+        workflow,
+        "Run preparation checklist",
+        json.dumps(workflow["run_preparation"], indent=2),
+        memory_kind="run_preparation",
+    )
     return {"workflow": workflow}
 
 
@@ -523,6 +571,19 @@ async def workflows_update_run_preparation(workflow_id: str, req: RunPrepUpdateR
         }
     )
     save_workflow(workflow)
+    if any(step.get("step_id") == step_id and step.get("derivation", {}).get("resolved_by") == "scientist_manual_authoring" for step in workflow.get("steps", [])):
+        index_scientist_memory(
+            workflow,
+            f"Manual missing-context resolution {step_id}",
+            "\n".join(
+                [
+                    f"Scientist manually authored missing-context step {step_id}.",
+                    f"Instructions: {req.modified_instructions}",
+                    f"Scientist note: {req.scientist_note or ''}",
+                ]
+            ),
+            memory_kind="manual_missing_context_resolution",
+        )
     return {"workflow": workflow}
 
 
