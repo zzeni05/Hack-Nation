@@ -80,7 +80,7 @@ export function ExecutionWorkspace({
       <div className="mb-5 flex items-baseline justify-between gap-3 border-b border-ink pb-2">
         <div className="flex items-baseline gap-3">
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
-            §06
+            §07
           </span>
           <h2 className="font-display text-[22px] leading-none tracking-tight">
             Execute Run

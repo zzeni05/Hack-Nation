@@ -462,6 +462,11 @@ class PlanUpdateRequest(BaseModel):
     scientist_note: str | None = None
 
 
+class RunPrepUpdateRequest(BaseModel):
+    run_preparation: dict
+    scientist_note: str | None = None
+
+
 @app.post("/api/workflows/{workflow_id}/plan")
 async def workflows_update_plan(workflow_id: str, req: PlanUpdateRequest):
     workflow = get_workflow(workflow_id)
@@ -486,6 +491,32 @@ async def workflows_update_plan(workflow_id: str, req: PlanUpdateRequest):
             "event_id": f"trace_{uuid4().hex[:8]}",
             "event_type": "step_modified",
             "summary": "Scientist curated operational plan sections.",
+            "scientist_note": req.scientist_note,
+            "affected_sections": ["materials", "budget", "timeline", "validation", "risks"],
+            "timestamp": timestamp,
+        }
+    )
+    save_workflow(workflow)
+    return {"workflow": workflow}
+
+
+@app.post("/api/workflows/{workflow_id}/run-preparation")
+async def workflows_update_run_preparation(workflow_id: str, req: RunPrepUpdateRequest):
+    workflow = get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    timestamp = datetime.now(UTC).isoformat()
+    workflow["run_preparation"] = {
+        **req.run_preparation,
+        "updated_at": timestamp,
+    }
+    workflow["updated_at"] = timestamp
+    workflow["trace"].append(
+        {
+            "event_id": f"trace_{uuid4().hex[:8]}",
+            "event_type": "note_added",
+            "summary": "Scientist updated run preparation checklist.",
             "scientist_note": req.scientist_note,
             "affected_sections": ["materials", "budget", "timeline", "validation", "risks"],
             "timestamp": timestamp,

@@ -347,6 +347,20 @@ export async function updateWorkflowPlan(
   });
 }
 
+export async function updateWorkflowRunPreparation(
+  workflowId: string,
+  runPreparation: Workflow["run_preparation"],
+  scientistNote?: string
+): Promise<{ workflow: Workflow }> {
+  return apiFetch<{ workflow: Workflow }>(`/api/workflows/${workflowId}/run-preparation`, {
+    method: "POST",
+    body: JSON.stringify({
+      run_preparation: runPreparation,
+      scientist_note: scientistNote ?? null,
+    }),
+  });
+}
+
 export async function uploadKnowledgeFiles(files: File[]): Promise<{
   documents_ingested: number;
   chunks_created: number;

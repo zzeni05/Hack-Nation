@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ExecutionRun, Workflow } from "@/types";
+import type { PrepStatus, RunPreparation, RunPreparationItem } from "@/types";
 import {
   compileWorkflowStream,
   addRunStepAttachment,
@@ -15,6 +16,7 @@ import {
   submitFeedback,
   previewRetrievalStream,
   saveRunFindings,
+  updateWorkflowRunPreparation,
   updateWorkflowPlan,
   type CompileProgressEvent,
 } from "@/lib/api";
@@ -33,7 +35,7 @@ import { ExecutionTrace, SopImprovementPanel } from "@/components/Trace";
 import { ExecutionWorkspace } from "@/components/ExecutionWorkspace";
 import { KnowledgeUpload } from "@/components/KnowledgeUpload";
 import { GuidedShell, StageHeader, type AppStage, type StageItem } from "@/components/guided/GuidedShell";
-import { ArrowRight, BookOpenText, Download, RefreshCw, Save, Search, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpenText, ClipboardCheck, Download, ExternalLink, FileText, RefreshCw, Save, Search, Sparkles } from "lucide-react";
 
 export default function Home() {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -160,6 +162,12 @@ export default function Home() {
     setWorkflow(result.workflow);
   }
 
+  async function handleUpdateRunPreparation(runPreparation: RunPreparation, note?: string) {
+    if (!workflow) return;
+    const result = await updateWorkflowRunPreparation(workflow.workflow_id, runPreparation, note);
+    setWorkflow(result.workflow);
+  }
+
   function handleReset() {
     setWorkflow(null);
     setSelectedStepId(null);
@@ -275,8 +283,17 @@ export default function Home() {
             workflow={workflow}
             selectedStepId={selectedStepId}
             onSelectStep={setSelectedStepId}
-            onStartRun={handleCreateRun}
+            onContinue={() => setStage("prepare_run")}
             onUpdatePlan={handleUpdatePlan}
+          />
+        )}
+
+        {stage === "prepare_run" && workflow && (
+          <PrepareRunStage
+            workflow={workflow}
+            onSavePreparation={handleUpdateRunPreparation}
+            onStartRun={handleCreateRun}
+            onBack={() => setStage("workflow_setup")}
           />
         )}
 
@@ -355,8 +372,9 @@ function buildStages(
     stage("retrieval", "03", "Retrieval review", "Sources", !hasHypothesis && !hasWorkflow, hasWorkflow, retrievalSourceCount ? `${retrievalSourceCount} sources previewed` : "Tavily config and source selection"),
     stage("protocol_basis", "04", "Protocol basis", "Evidence", !hasWorkflow, hasWorkflow, workflow?.protocol_basis?.basis_label),
     stage("workflow_setup", "05", "Workflow setup", "Plan", !hasWorkflow, hasRun, workflow ? `${workflow.steps.length} steps` : undefined),
-    stage("execute", "06", "Execute run", "Runbook", !hasWorkflow, completedRun, hasRun ? executionRun?.status : "start run"),
-    stage("review", "07", "Review", "Memory", !hasWorkflow, completedRun, "Trace and SOP signals"),
+    stage("prepare_run", "06", "Prepare run", "Readiness", !hasWorkflow, hasRun, workflow?.run_preparation?.readiness_status?.replaceAll("_", " ")),
+    stage("execute", "07", "Execute run", "Runbook", !hasWorkflow, completedRun, hasRun ? executionRun?.status : "start run"),
+    stage("review", "08", "Review", "Memory", !hasWorkflow, completedRun, "Trace and SOP signals"),
   ];
 }
 
@@ -812,13 +830,13 @@ function WorkflowSetupStage({
   workflow,
   selectedStepId,
   onSelectStep,
-  onStartRun,
+  onContinue,
   onUpdatePlan,
 }: {
   workflow: Workflow;
   selectedStepId: string | null;
   onSelectStep: (stepId: string) => void;
-  onStartRun: () => Promise<void>;
+  onContinue: () => void;
   onUpdatePlan: (plan: Workflow["plan"], note?: string) => Promise<void>;
 }) {
   const blocking = workflow.steps.filter((step) => step.status === "blocked" || step.status === "needs_user_choice");
@@ -838,13 +856,406 @@ function WorkflowSetupStage({
         <PlanTabs workflow={workflow} onSavePlan={onUpdatePlan} />
       </div>
       <button
-        onClick={() => void onStartRun()}
+        onClick={onContinue}
         className="mt-8 bg-ink px-5 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-paper hover:bg-rust"
       >
-        Start execution run
+        Proceed to run preparation
       </button>
     </div>
   );
+}
+
+function PrepareRunStage({
+  workflow,
+  onSavePreparation,
+  onStartRun,
+  onBack,
+}: {
+  workflow: Workflow;
+  onSavePreparation: (runPreparation: RunPreparation, note?: string) => Promise<void>;
+  onStartRun: () => Promise<void>;
+  onBack: () => void;
+}) {
+  const [prep, setPrep] = useState<RunPreparation>(() => workflow.run_preparation ?? buildDefaultRunPreparation(workflow));
+  const [note, setNote] = useState(workflow.run_preparation?.preparation_note ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const readiness = computeReadiness(prep);
+  const allItems = flattenPrep(prep);
+  const blocked = allItems.filter((item) => item.status === "blocked");
+  const needsReview = allItems.filter((item) => item.status === "needs_review" || item.status === "not_started");
+
+  function updateItem(section: keyof RunPreparation, id: string, patch: Partial<RunPreparationItem>) {
+    setPrep((current) => ({
+      ...current,
+      [section]: (current[section] as RunPreparationItem[]).map((item) =>
+        item.id === id ? { ...item, ...patch } : item
+      ),
+    }));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const next = { ...prep, readiness_status: readiness, preparation_note: note };
+      setPrep(next);
+      await onSavePreparation(next, note.trim() || undefined);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function start() {
+    const next = { ...prep, readiness_status: readiness, preparation_note: note };
+    await onSavePreparation(next, note.trim() || undefined);
+    await onStartRun();
+  }
+
+  return (
+    <div>
+      <StageHeader number="06" eyebrow="Prepare run" title="Convert the curated plan into a runnable lab operation.">
+        Confirm approvals, procurement, finance, scheduling, validation, and risk readiness before creating the execution run. This stage does not claim institutional approval; it records scientist-confirmed readiness and likely review requirements.
+      </StageHeader>
+      <WorkflowSummary workflow={workflow} />
+
+      <section className="mt-6 border border-ink bg-paper-deep/30 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">Run readiness gate</div>
+            <div className="mt-2 font-display text-[32px] leading-none tracking-tight">
+              {readiness.replaceAll("_", " ")}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">
+              <span>{blocked.length} blocked</span>
+              <span>{needsReview.length} need review</span>
+              <span>{allItems.filter((item) => item.status === "confirmed").length} confirmed</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => exportPrepMarkdown(workflow, prep)} className="inline-flex items-center gap-2 border border-ink/30 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] hover:border-ink">
+              <FileText className="h-3.5 w-3.5" /> Finance packet
+            </button>
+            <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-2 border border-ink px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] hover:bg-ink hover:text-paper disabled:opacity-40">
+              <Save className="h-3.5 w-3.5" /> {saving ? "Saving" : "Save prep"}
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          rows={2}
+          className="mt-4 w-full resize-none border border-ink/20 bg-paper px-3 py-2 font-display text-[14px] leading-[1.45] focus:outline-none"
+          placeholder="Optional preparation note: approver names, purchasing constraints, scheduling caveats..."
+        />
+      </section>
+
+      <div className="mt-8 grid gap-8 2xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-8">
+          <PrepSection title="Approvals and institutional review" items={prep.approval_items} section="approval_items" onUpdate={updateItem} />
+          <PrepSection title="Materials and ordering" items={prep.material_items} section="material_items" onUpdate={updateItem} showLinks />
+          <PrepSection title="Finance and procurement packet" items={prep.finance_items} section="finance_items" onUpdate={updateItem} />
+          <PrepSection title="Schedule readiness" items={prep.schedule_items} section="schedule_items" onUpdate={updateItem} />
+          <PrepSection title="Validation readiness" items={prep.validation_items} section="validation_items" onUpdate={updateItem} />
+          <PrepSection title="Risk readiness" items={prep.risk_items} section="risk_items" onUpdate={updateItem} />
+        </div>
+
+        <aside className="space-y-5 2xl:sticky 2xl:top-4 2xl:self-start">
+          <section className="border border-ink bg-paper p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">Readiness rule</div>
+            <p className="mt-2 font-display text-[13px] leading-[1.45] text-ink-soft">
+              A run is blocked if any checklist item is blocked. It is ready with warnings if likely approvals, materials, validation, schedule, or high-risk items still need review.
+            </p>
+          </section>
+          <section className="border border-ochre/40 bg-ochre/5 p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ochre">Scientific operations basis</div>
+            <ul className="mt-3 space-y-2 font-display text-[13px] leading-[1.45] text-ink-soft">
+              <li>PI/project lead approval is commonly expected before experimental execution.</li>
+              <li>Biosafety, IBC, IRB, IACUC, and EHS review depend on materials, organisms, samples, vectors, animals, humans, and hazards.</li>
+              <li>Budget owner and procurement review depend on institutional thresholds and supplier policies.</li>
+              <li>Equipment and facility scheduling should be confirmed before run start.</li>
+            </ul>
+          </section>
+          <div className="flex flex-col gap-2">
+            <button onClick={onBack} className="border border-ink/30 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-soft hover:border-ink hover:text-ink">
+              Back to workflow setup
+            </button>
+            <button onClick={() => void start()} disabled={readiness === "blocked"} className="inline-flex items-center justify-center gap-2 bg-ink px-4 py-3 font-mono text-[10px] uppercase tracking-[0.16em] text-paper hover:bg-rust disabled:opacity-35">
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              Start execution run
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function PrepSection({
+  title,
+  items,
+  section,
+  onUpdate,
+  showLinks = false,
+}: {
+  title: string;
+  items: RunPreparationItem[];
+  section: keyof RunPreparation;
+  onUpdate: (section: keyof RunPreparation, id: string, patch: Partial<RunPreparationItem>) => void;
+  showLinks?: boolean;
+}) {
+  return (
+    <section className="border border-ink bg-paper">
+      <div className="border-b border-ink px-4 py-3">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">{title}</div>
+      </div>
+      <div className="divide-y divide-rule">
+        {items.map((item) => (
+          <div key={item.id} className="grid gap-3 p-4 lg:grid-cols-[1fr_170px]">
+            <div>
+              <div className="font-display text-[15px] leading-tight tracking-tight">{item.label}</div>
+              <p className="mt-1 font-display text-[13px] leading-[1.45] text-ink-soft">{item.rationale}</p>
+              {showLinks && item.links?.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {item.links.map((link) => (
+                    <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 border border-ink/20 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-soft hover:border-rust hover:text-rust">
+                      {link.label} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <select
+                value={item.status}
+                onChange={(event) => onUpdate(section, item.id, { status: event.target.value as PrepStatus })}
+                className="w-full border border-ink/20 bg-paper-deep/30 px-2 py-2 font-mono text-[10px] uppercase tracking-[0.12em] focus:outline-none"
+              >
+                <option value="not_started">Not started</option>
+                <option value="in_progress">In progress</option>
+                <option value="needs_review">Needs review</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="not_required">Not required</option>
+                <option value="blocked">Blocked</option>
+              </select>
+              <input
+                value={item.owner ?? ""}
+                onChange={(event) => onUpdate(section, item.id, { owner: event.target.value })}
+                className="w-full border border-ink/20 bg-paper px-2 py-1.5 font-display text-[12px] focus:outline-none"
+                placeholder="Owner / approver"
+              />
+              <input
+                value={item.note ?? ""}
+                onChange={(event) => onUpdate(section, item.id, { note: event.target.value })}
+                className="w-full border border-ink/20 bg-paper px-2 py-1.5 font-display text-[12px] focus:outline-none"
+                placeholder="Prep note"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function buildDefaultRunPreparation(workflow: Workflow): RunPreparation {
+  const totalBudget = workflow.plan.budget.reduce((sum, line) => sum + (Number.isFinite(line.total) ? line.total : 0), 0);
+  return {
+    readiness_status: "ready_with_warnings",
+    material_items: workflow.plan.materials.map((material, index) => ({
+      id: `material_${index + 1}`,
+      label: material.name,
+      category: "material",
+      status: material.confirmed ? "confirmed" : "needs_review",
+      rationale: `${material.quantity || "Quantity unspecified"} · ${material.supplier || "supplier not set"} · ${material.catalog || "catalog not set"} · estimated ${formatMoney(material.total)}. Confirm inventory, acceptable substitute, or ordering path before execution.`,
+      links: materialOrderLinks(material),
+      source_ref: material.source_ref,
+    })),
+    approval_items: buildApprovalItems(workflow, totalBudget),
+    finance_items: [
+      {
+        id: "finance_procurement_packet",
+        label: "Procurement and budget packet",
+        category: "finance",
+        status: totalBudget > 0 ? "needs_review" : "not_started",
+        rationale: `Estimated plan budget is ${formatMoney(totalBudget)}. Export the finance packet and confirm budget owner/procurement requirements for your institution.`,
+      },
+      {
+        id: "finance_cost_confidence",
+        label: "Confirm estimated or low-confidence costs",
+        category: "finance",
+        status: workflow.plan.budget.some((line) => line.needs_user_confirmation || line.confidence === "low") ? "needs_review" : "confirmed",
+        rationale: "Budget lines inferred from sources or heuristics should be checked before purchase requests are submitted.",
+      },
+    ],
+    schedule_items: workflow.plan.timeline.map((phase, index) => ({
+      id: `schedule_${index + 1}`,
+      label: phase.phase,
+      category: "schedule",
+      status: phase.confirmed ? "confirmed" : "needs_review",
+      rationale: `${phase.duration}; weeks ${phase.start_week}-${phase.end_week}. Confirm equipment reservations, operator availability, delivery lead times, and facility/storage windows.`,
+    })),
+    validation_items: workflow.plan.validation.map((item, index) => ({
+      id: `validation_${index + 1}`,
+      label: `${item.endpoint} via ${item.assay}`,
+      category: "validation",
+      status: item.confirmed ? "confirmed" : "needs_review",
+      rationale: `Confirm controls (${item.controls.join(", ") || "none listed"}), threshold (${item.threshold || "not specified"}), data capture, and acceptance criteria before execution.`,
+      source_ref: item.source_ref,
+    })),
+    risk_items: workflow.plan.risks.map((risk, index) => ({
+      id: `risk_${index + 1}`,
+      label: risk.risk,
+      category: "risk",
+      status: risk.severity === "high" ? "needs_review" : risk.confirmed ? "confirmed" : "needs_review",
+      rationale: `${risk.category} risk, severity ${risk.severity}. Mitigation: ${risk.mitigation || "not specified"}. High severity risks should have a named reviewer or mitigation note.`,
+    })),
+    preparation_note: "",
+  };
+}
+
+function buildApprovalItems(workflow: Workflow, totalBudget: number): RunPreparationItem[] {
+  const text = [
+    workflow.hypothesis,
+    workflow.structured_intent.model_system,
+    workflow.structured_intent.intervention,
+    workflow.structured_intent.comparator,
+    workflow.structured_intent.experiment_type,
+    workflow.plan.materials.map((item) => `${item.name} ${item.purpose}`).join(" "),
+    workflow.plan.risks.map((risk) => `${risk.category} ${risk.risk}`).join(" "),
+  ].join(" ").toLowerCase();
+
+  const items: RunPreparationItem[] = [
+    {
+      id: "approval_pi",
+      label: "PI or project lead approval",
+      category: "approval",
+      status: "needs_review",
+      rationale: "Most lab workflows require project owner or PI approval before resources, staff time, and shared facilities are committed.",
+    },
+    {
+      id: "approval_budget",
+      label: "Budget owner / procurement approval",
+      category: "approval",
+      status: totalBudget >= 500 ? "needs_review" : "in_progress",
+      rationale: `Estimated budget is ${formatMoney(totalBudget)}. Institutional purchase thresholds vary, so the scientist should confirm whether budget owner or procurement approval is required.`,
+    },
+    {
+      id: "approval_lab_manager",
+      label: "Lab manager / facility scheduling",
+      category: "approval",
+      status: "needs_review",
+      rationale: "Shared equipment, incubators, freezers, plate readers, biosafety cabinets, and storage locations should be reserved or confirmed before execution.",
+    },
+  ];
+
+  if (/(hela|cell|cells|culture|bacteria|yeast|virus|viral|plasmid|recombinant|dna|rna|biosafety|atcc|addgene)/.test(text)) {
+    items.push({
+      id: "approval_biosafety",
+      label: "Biosafety / IBC confirmation",
+      category: "approval",
+      status: "needs_review",
+      rationale: "Biological materials, cell culture, recombinant DNA, viral vectors, or microorganisms may require biosafety or IBC review depending on institutional rules.",
+    });
+  }
+  if (/(human|patient|donor|clinical|blood|tissue|identifiable)/.test(text)) {
+    items.push({
+      id: "approval_irb",
+      label: "IRB / human samples confirmation",
+      category: "approval",
+      status: "needs_review",
+      rationale: "Human subjects, identifiable data, or human-derived samples may require IRB or institutional human-samples review.",
+    });
+  }
+  if (/(mouse|mice|rat|animal|zebrafish|in vivo|murine)/.test(text)) {
+    items.push({
+      id: "approval_iacuc",
+      label: "IACUC / animal protocol confirmation",
+      category: "approval",
+      status: "needs_review",
+      rationale: "Animal work generally requires an approved animal protocol before experiments begin.",
+    });
+  }
+  if (/(dmso|formaldehyde|methanol|ethanol|chloroform|hazard|toxic|flammable|corrosive|biohazard|liquid nitrogen)/.test(text)) {
+    items.push({
+      id: "approval_ehs",
+      label: "EHS / chemical safety confirmation",
+      category: "approval",
+      status: "needs_review",
+      rationale: "Hazardous chemicals, cryogens, biohazards, or special waste streams may require EHS handling, PPE, storage, or disposal confirmation.",
+    });
+  }
+
+  return items;
+}
+
+function materialOrderLinks(material: { name: string; supplier?: string; catalog?: string }) {
+  const query = encodeURIComponent(`${material.name} ${material.catalog ?? ""}`.trim());
+  const supplier = (material.supplier ?? "").toLowerCase();
+  const links = [];
+  if (supplier.includes("thermo")) links.push({ label: "Thermo Fisher search", url: `https://www.thermofisher.com/search/results?keyword=${query}` });
+  if (supplier.includes("sigma") || supplier.includes("millipore")) links.push({ label: "Sigma-Aldrich search", url: `https://www.sigmaaldrich.com/US/en/search/${query}` });
+  if (supplier.includes("promega")) links.push({ label: "Promega search", url: `https://www.promega.com/search/?q=${query}` });
+  if (supplier.includes("qiagen")) links.push({ label: "Qiagen search", url: `https://www.qiagen.com/us/search?query=${query}` });
+  if (supplier.includes("atcc")) links.push({ label: "ATCC search", url: `https://www.atcc.org/search#q=${query}` });
+  if (supplier.includes("addgene")) links.push({ label: "Addgene search", url: `https://www.addgene.org/search/advanced/?q=${query}` });
+  if (links.length === 0) {
+    links.push(
+      { label: "Thermo Fisher", url: `https://www.thermofisher.com/search/results?keyword=${query}` },
+      { label: "Sigma-Aldrich", url: `https://www.sigmaaldrich.com/US/en/search/${query}` }
+    );
+  }
+  return links;
+}
+
+function flattenPrep(prep: RunPreparation): RunPreparationItem[] {
+  return [
+    ...prep.material_items,
+    ...prep.approval_items,
+    ...prep.finance_items,
+    ...prep.schedule_items,
+    ...prep.validation_items,
+    ...prep.risk_items,
+  ];
+}
+
+function computeReadiness(prep: RunPreparation): RunPreparation["readiness_status"] {
+  const items = flattenPrep(prep);
+  if (items.some((item) => item.status === "blocked")) return "blocked";
+  if (items.some((item) => ["not_started", "needs_review", "in_progress"].includes(item.status))) return "ready_with_warnings";
+  return "ready";
+}
+
+function exportPrepMarkdown(workflow: Workflow, prep: RunPreparation) {
+  const lines = [
+    `# Run Preparation Packet`,
+    "",
+    `Workflow: ${workflow.workflow_id}`,
+    `Hypothesis: ${workflow.hypothesis}`,
+    `Readiness: ${computeReadiness(prep)}`,
+    "",
+    "## Materials",
+    ...prep.material_items.map((item) => `- [${item.status}] ${item.label}: ${item.rationale}`),
+    "",
+    "## Approvals",
+    ...prep.approval_items.map((item) => `- [${item.status}] ${item.label}: ${item.rationale}${item.owner ? ` Owner: ${item.owner}.` : ""}`),
+    "",
+    "## Finance",
+    ...prep.finance_items.map((item) => `- [${item.status}] ${item.label}: ${item.rationale}`),
+    "",
+    "## Schedule",
+    ...prep.schedule_items.map((item) => `- [${item.status}] ${item.label}: ${item.rationale}`),
+    "",
+    "## Validation",
+    ...prep.validation_items.map((item) => `- [${item.status}] ${item.label}: ${item.rationale}`),
+    "",
+    "## Risks",
+    ...prep.risk_items.map((item) => `- [${item.status}] ${item.label}: ${item.rationale}`),
+  ];
+  downloadText(`${workflow.workflow_id}_run_preparation_packet.md`, lines.join("\n"), "text/markdown");
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
 }
 
 function ExecuteStage({
@@ -872,7 +1283,7 @@ function ExecuteStage({
 }) {
   return (
     <div>
-      <StageHeader number="06" eyebrow="Execute" title="Run the workflow step by step.">
+      <StageHeader number="07" eyebrow="Execute" title="Run the workflow step by step.">
         Keep the active step, run notes, files, actual values, and provenance in one workspace.
       </StageHeader>
       <div className="grid gap-8 2xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -904,7 +1315,7 @@ function ReviewStage({
 }) {
   return (
     <div>
-      <StageHeader number="07" eyebrow="Review" title="Turn execution into memory.">
+      <StageHeader number="08" eyebrow="Review" title="Turn execution into memory.">
         Review trace events, deviations, run status, conclusions, exports, and any real SOP improvement signals after execution.
       </StageHeader>
       <div className="grid gap-8 xl:grid-cols-[1fr_360px]">
@@ -1035,6 +1446,16 @@ function exportRunMarkdown(workflow: Workflow, run: ExecutionRun) {
     "## Recommended Next Steps",
     "",
     run.findings?.next_steps || "Not recorded.",
+    "",
+    "## Run Preparation",
+    "",
+    workflow.run_preparation
+      ? `Readiness: ${workflow.run_preparation.readiness_status}`
+      : "No run preparation checklist saved.",
+    "",
+    ...(workflow.run_preparation
+      ? flattenPrep(workflow.run_preparation).map((item) => `- [${item.status}] ${item.category}: ${item.label} — ${item.rationale}${item.note ? ` Note: ${item.note}` : ""}`)
+      : []),
     "",
     "## Steps",
     "",

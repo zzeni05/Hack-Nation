@@ -9,6 +9,7 @@ export type AppStage =
   | "retrieval"
   | "protocol_basis"
   | "workflow_setup"
+  | "prepare_run"
   | "execute"
   | "review";
 

@@ -205,6 +205,39 @@ export interface RiskItem {
   confirmed?: boolean;
 }
 
+export type PrepStatus =
+  | "not_started"
+  | "in_progress"
+  | "confirmed"
+  | "not_required"
+  | "blocked"
+  | "needs_review";
+
+export interface RunPreparationItem {
+  id: string;
+  label: string;
+  category: "approval" | "material" | "finance" | "schedule" | "validation" | "risk";
+  status: PrepStatus;
+  rationale: string;
+  owner?: string;
+  note?: string;
+  links?: { label: string; url: string }[];
+  source_ref?: SourceRef;
+}
+
+export interface RunPreparation {
+  readiness_status: "ready" | "ready_with_warnings" | "blocked";
+  material_items: RunPreparationItem[];
+  approval_items: RunPreparationItem[];
+  finance_items: RunPreparationItem[];
+  schedule_items: RunPreparationItem[];
+  validation_items: RunPreparationItem[];
+  risk_items: RunPreparationItem[];
+  prepared_by?: string;
+  preparation_note?: string;
+  updated_at?: string;
+}
+
 export interface TraceEvent {
   event_id: string;
   event_type:
@@ -261,6 +294,7 @@ export interface Workflow {
     validation: ValidationItem[];
     risks: RiskItem[];
   };
+  run_preparation?: RunPreparation;
   trace: TraceEvent[];
   sop_recommendations: SopRecommendation[];
   memory_used?: string[];
