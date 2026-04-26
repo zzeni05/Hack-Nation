@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fulcrum / The AI Scientist",
+  title: "Operon: From hypothesis to lab-ready experiments",
   description:
-    "From hypothesis to runnable experiment plan. An AI lab operations engine that compiles scientific questions into source-grounded, executable workflows.",
+    "Operon compiles a scientific hypothesis into a personalized, source-grounded experiment plan that a real lab can pick up and execute.",
 };
 
 export default function RootLayout({

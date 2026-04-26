@@ -11,7 +11,8 @@ export type AppStage =
   | "workflow_setup"
   | "prepare_run"
   | "execute"
-  | "review";
+  | "review"
+  | "memory_insights";
 
 export interface StageItem {
   id: AppStage;

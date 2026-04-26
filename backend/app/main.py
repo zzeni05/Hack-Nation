@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -20,9 +21,9 @@ from app.llm import complete, stream
 from app.protocol_cache import find_protocol_step_by_chunk_id
 from app.run_store import add_step_attachment, complete_run, create_run, get_run, update_run_findings, update_step_notes, update_step_status
 from app.sop_improvement import generate_sop_recommendations
-from app.store import append_feedback, get_workflow, relevant_feedback, save_workflow
+from app.store import _read_json, _write_json, append_feedback, get_workflow, list_feedback, relevant_feedback, save_workflow
 from app.tavily_search import RetrievalConfig, discover_external_sources, generate_tavily_queries, source_to_dict
-from app.vector_store import get_chunk, stats as vector_stats, upsert_document
+from app.vector_store import get_chunk, load_index, save_index, stats as vector_stats, upsert_document
 
 app = FastAPI(title="Hackathon Backend", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
@@ -70,6 +71,284 @@ async def debug_runtime():
         },
         "vector_stats": vector_stats(),
     }
+
+
+@app.get("/api/memory/insights")
+async def memory_insights():
+    workflows = _read_json(settings.workflow_store_path, {})
+    runs = _read_json(settings.run_store_path, {})
+    feedback = list_feedback()
+    vector_items = load_index()
+
+    workflow_values = [workflow for workflow in workflows.values() if isinstance(workflow, dict)]
+    run_values = [run for run in runs.values() if isinstance(run, dict)]
+    completed_runs = [run for run in run_values if run.get("status") == "completed"]
+
+    workflow_summaries = [summarize_workflow_for_memory(workflow, run_values) for workflow in workflow_values]
+    workflow_summaries.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
+
+    run_summaries = [summarize_run_for_memory(run) for run in run_values]
+    run_summaries.sort(key=lambda item: item.get("completed_at") or item.get("created_at") or "", reverse=True)
+
+    feedback_summaries = [
+        {
+            "feedback_id": item.get("feedback_id"),
+            "workflow_id": item.get("workflow_id"),
+            "experiment_type": item.get("experiment_type", "unknown"),
+            "section": item.get("section", "unknown"),
+            "step_id": item.get("step_id"),
+            "correction": item.get("correction", ""),
+            "reason": item.get("reason", ""),
+            "created_at": item.get("created_at"),
+        }
+        for item in feedback
+    ]
+
+    learning_events = build_learning_events(workflow_values, run_values, feedback, vector_items)
+    insights = build_memory_metrics(workflow_values, run_values, feedback, vector_items)
+    return {
+        "workflows": workflow_summaries[:25],
+        "runs": run_summaries[:25],
+        "feedback": feedback_summaries[-25:],
+        "vector_stats": vector_stats(),
+        "learning_events": learning_events[:50],
+        "insights": insights,
+        "improvement_opportunities": build_improvement_opportunities(workflow_values, run_values, feedback, vector_items),
+    }
+
+
+@app.delete("/api/memory")
+async def clear_memory():
+    """Clear local hackathon memory stores.
+
+    This intentionally affects only generated local state, not source files,
+    environment variables, or bundled code.
+    """
+    workflow_count = len(_read_json(settings.workflow_store_path, {}))
+    run_count = len(_read_json(settings.run_store_path, {}))
+    feedback_count = len(_read_json(settings.feedback_store_path, []))
+    protocol_count = len(_read_json(settings.protocol_cache_path, {}))
+    vector_count = len(load_index())
+    upload_count = clear_upload_directory(settings.upload_store_path)
+
+    _write_json(settings.workflow_store_path, {})
+    _write_json(settings.run_store_path, {})
+    _write_json(settings.feedback_store_path, [])
+    _write_json(settings.trace_store_path, [])
+    _write_json(settings.protocol_cache_path, {})
+    save_index([])
+
+    return {
+        "ok": True,
+        "cleared": {
+            "workflows": workflow_count,
+            "runs": run_count,
+            "feedback": feedback_count,
+            "protocol_candidates": protocol_count,
+            "vector_chunks": vector_count,
+            "uploaded_files": upload_count,
+        },
+        "insights": {
+            "workflows": [],
+            "runs": [],
+            "feedback": [],
+            "vector_stats": vector_stats(),
+            "learning_events": [],
+            "insights": build_memory_metrics([], [], [], []),
+            "improvement_opportunities": build_improvement_opportunities([], [], [], []),
+        },
+    }
+
+
+def clear_upload_directory(path_value: str) -> int:
+    path = Path(path_value)
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
+        return 0
+    cleared = 0
+    for child in path.iterdir():
+        if child.is_file() or child.is_symlink():
+            child.unlink()
+            cleared += 1
+        elif child.is_dir():
+            for nested in child.rglob("*"):
+                if nested.is_file() or nested.is_symlink():
+                    cleared += 1
+            for nested in sorted(child.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+                if nested.is_file() or nested.is_symlink():
+                    nested.unlink()
+                elif nested.is_dir():
+                    nested.rmdir()
+            child.rmdir()
+    return cleared
+
+
+def summarize_workflow_for_memory(workflow: dict, runs: list[dict]) -> dict:
+    workflow_id = workflow.get("workflow_id")
+    linked_runs = [run for run in runs if run.get("workflow_id") == workflow_id]
+    return {
+        "workflow_id": workflow_id,
+        "hypothesis": workflow.get("hypothesis", ""),
+        "experiment_type": workflow.get("structured_intent", {}).get("experiment_type", "unknown"),
+        "created_at": workflow.get("created_at"),
+        "updated_at": workflow.get("updated_at"),
+        "protocol_basis": workflow.get("protocol_basis", {}).get("base_protocol_name", "No protocol basis"),
+        "readiness": workflow.get("protocol_basis", {}).get("base_protocol_score"),
+        "open_decisions": workflow.get("open_decision_count", 0),
+        "run_count": len(linked_runs),
+        "latest_run_status": linked_runs[-1].get("status") if linked_runs else None,
+        "memory_used_count": len(workflow.get("memory_used", []) or []),
+    }
+
+
+def summarize_run_for_memory(run: dict) -> dict:
+    steps = run.get("steps", [])
+    findings = run.get("findings") or {}
+    return {
+        "run_id": run.get("run_id"),
+        "workflow_id": run.get("workflow_id"),
+        "status": run.get("status"),
+        "created_at": run.get("created_at"),
+        "completed_at": run.get("completed_at"),
+        "completed_steps": len([step for step in steps if step.get("status") == "completed"]),
+        "total_steps": len(steps),
+        "deviation_count": len([step for step in steps if step.get("deviation_note")]),
+        "attachment_count": sum(len(step.get("attachments", []) or []) for step in steps),
+        "conclusion": findings.get("conclusion", ""),
+        "findings_preview": (findings.get("findings", "") or "")[:240],
+    }
+
+
+def build_memory_metrics(workflows: list[dict], runs: list[dict], feedback: list[dict], vector_items: list[dict]) -> dict:
+    experiment_counts: dict[str, int] = {}
+    feedback_sections: dict[str, int] = {}
+    memory_sources: dict[str, int] = {}
+    for workflow in workflows:
+        key = workflow.get("structured_intent", {}).get("experiment_type", "unknown")
+        experiment_counts[key] = experiment_counts.get(key, 0) + 1
+    for item in feedback:
+        key = item.get("section", "unknown")
+        feedback_sections[key] = feedback_sections.get(key, 0) + 1
+    for item in vector_items:
+        metadata = item.get("metadata", {})
+        key = metadata.get("memory_kind") or metadata.get("source_type") or "unknown"
+        memory_sources[key] = memory_sources.get(key, 0) + 1
+    return {
+        "workflow_count": len(workflows),
+        "run_count": len(runs),
+        "completed_run_count": len([run for run in runs if run.get("status") == "completed"]),
+        "feedback_count": len(feedback),
+        "custom_branch_count": count_trace_events(workflows, "decision_committed", "custom branch"),
+        "manual_gap_resolution_count": count_vector_memory_kind(vector_items, "manual_missing_context_resolution"),
+        "run_prep_count": len([workflow for workflow in workflows if workflow.get("run_preparation")]),
+        "deviation_count": sum(len([step for step in run.get("steps", []) if step.get("deviation_note")]) for run in runs),
+        "top_experiment_types": top_counts(experiment_counts),
+        "top_feedback_sections": top_counts(feedback_sections),
+        "memory_sources": top_counts(memory_sources),
+    }
+
+
+def build_learning_events(workflows: list[dict], runs: list[dict], feedback: list[dict], vector_items: list[dict]) -> list[dict]:
+    events: list[dict] = []
+    for run in runs:
+        if run.get("status") == "completed":
+            events.append({
+                "event_type": "completed_run_indexed",
+                "label": f"Completed run {run.get('run_id')}",
+                "description": "Completed run notes, deviations, actuals, and attachments metadata are indexed as prior-run memory.",
+                "workflow_id": run.get("workflow_id"),
+                "run_id": run.get("run_id"),
+                "timestamp": run.get("completed_at") or run.get("created_at"),
+            })
+    for workflow in workflows:
+        for event in workflow.get("trace", []):
+            summary = event.get("summary", "")
+            if "custom branch" in summary.lower():
+                events.append({
+                    "event_type": "custom_branch_indexed",
+                    "label": "Custom decision branch",
+                    "description": "Scientist-authored branch is indexed as internal memory for similar future decisions.",
+                    "workflow_id": workflow.get("workflow_id"),
+                    "timestamp": event.get("timestamp"),
+                })
+        if workflow.get("run_preparation"):
+            events.append({
+                "event_type": "run_preparation_indexed",
+                "label": f"Run preparation saved for {workflow.get('workflow_id')}",
+                "description": "Approval, procurement, schedule, validation, and risk readiness are indexed for future run planning.",
+                "workflow_id": workflow.get("workflow_id"),
+                "timestamp": workflow.get("run_preparation", {}).get("updated_at") or workflow.get("updated_at"),
+            })
+    for item in feedback:
+        events.append({
+            "event_type": "feedback_stored",
+            "label": f"Feedback on {item.get('section', 'unknown')}",
+            "description": (item.get("correction") or "Scientist correction stored for retrieval.")[:240],
+            "workflow_id": item.get("workflow_id"),
+            "timestamp": item.get("created_at"),
+        })
+    for item in vector_items:
+        metadata = item.get("metadata", {})
+        if metadata.get("memory_kind") == "manual_missing_context_resolution":
+            events.append({
+                "event_type": "manual_gap_resolution_indexed",
+                "label": metadata.get("source_name", "Manual gap resolution"),
+                "description": "Manual missing-context procedure is available as retrievable scientist memory.",
+                "workflow_id": metadata.get("workflow_id"),
+                "timestamp": None,
+            })
+    events.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    return events
+
+
+def build_improvement_opportunities(workflows: list[dict], runs: list[dict], feedback: list[dict], vector_items: list[dict]) -> list[str]:
+    opportunities = []
+    deviations = sum(len([step for step in run.get("steps", []) if step.get("deviation_note")]) for run in runs)
+    manual_gaps = count_vector_memory_kind(vector_items, "manual_missing_context_resolution")
+    estimate_materials = sum(
+        len([item for item in workflow.get("plan", {}).get("materials", []) if item.get("price_source") == "internal_estimate_table"])
+        for workflow in workflows
+    )
+    no_internal = len([
+        workflow for workflow in workflows
+        if workflow.get("sop_match", {}).get("source_origin") != "uploaded_internal"
+    ])
+    if deviations:
+        opportunities.append(f"{deviations} run deviations are available for future SOP improvement analysis.")
+    if manual_gaps:
+        opportunities.append(f"{manual_gaps} manually authored missing-context resolutions could be promoted into a runbook.")
+    if estimate_materials:
+        opportunities.append(f"{estimate_materials} material entries still use estimate-table pricing rather than source-backed supplier quotes.")
+    if no_internal:
+        opportunities.append(f"{no_internal} workflows compiled without an uploaded internal SOP as the best basis.")
+    if not runs:
+        opportunities.append("No execution runs have been created yet, so execution memory is limited.")
+    if not feedback:
+        opportunities.append("No explicit scientist feedback has been stored yet.")
+    return opportunities
+
+
+def count_trace_events(workflows: list[dict], event_type: str, contains: str | None = None) -> int:
+    count = 0
+    for workflow in workflows:
+        for event in workflow.get("trace", []):
+            if event.get("event_type") != event_type:
+                continue
+            if contains and contains not in event.get("summary", "").lower():
+                continue
+            count += 1
+    return count
+
+
+def count_vector_memory_kind(vector_items: list[dict], memory_kind: str) -> int:
+    return len([item for item in vector_items if item.get("metadata", {}).get("memory_kind") == memory_kind])
+
+
+def top_counts(counts: dict[str, int], *, limit: int = 6) -> list[dict]:
+    return [
+        {"label": label, "count": count}
+        for label, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:limit]
+    ]
 
 
 def index_scientist_memory(
