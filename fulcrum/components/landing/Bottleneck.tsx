@@ -13,9 +13,9 @@ import { useEffect, useRef, useState } from "react";
 export function Bottleneck() {
   return (
     <section className="relative border-t border-ink/15">
-      <div className="mx-auto grid max-w-[1480px] gap-12 px-8 py-24 lg:grid-cols-[1.2fr_1fr] lg:gap-20 lg:py-32">
+      <div className="mx-auto grid max-w-[1480px] gap-14 px-8 py-24 lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)] lg:gap-20 lg:py-32">
         {/* Left: editorial copy */}
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-3">
             <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-ink-mute">
               The bottleneck
@@ -23,7 +23,7 @@ export function Bottleneck() {
             <span className="h-px w-12 bg-rule" />
           </div>
 
-          <h2 className="mt-5 font-display text-[44px] leading-[1.02] tracking-[-0.02em] sm:text-[56px]">
+          <h2 className="mt-5 max-w-[13ch] text-balance font-display text-[44px] leading-[1.02] tracking-[-0.02em] sm:max-w-[15ch] sm:text-[56px] lg:max-w-[16ch]">
             <span style={{ fontWeight: 500 }}>It is not</span>{" "}
             <span className="italic text-ink-soft" style={{ fontVariationSettings: '"opsz" 144' }}>
               the ideas
@@ -31,14 +31,14 @@ export function Bottleneck() {
             <span style={{ fontWeight: 500 }}>that slow science down.</span>
           </h2>
 
-          <p className="mt-7 max-w-[58ch] font-display text-[18px] leading-[1.55] text-ink-soft">
+          <p className="mt-7 max-w-[62ch] font-display text-[18px] leading-[1.6] text-ink-soft">
             A hypothesis is rarely the only hard part. The slower step is translating it
             into operations: which SOP can be reused exactly, which protocol needs
             adaptation, which assay choice branches the plan, and where a scientist must
             make a judgment call.
           </p>
 
-          <p className="mt-5 max-w-[58ch] font-display text-[18px] leading-[1.55] text-ink-soft">
+          <p className="mt-5 max-w-[62ch] font-display text-[18px] leading-[1.6] text-ink-soft">
             Operon treats that translation like compilation. It parses the hypothesis,
             retrieves internal and external protocol evidence, assembles the deterministic
             parts into a step-by-step plan, and turns uncertainty into explicit decision
@@ -49,7 +49,7 @@ export function Bottleneck() {
           </p>
 
           {/* Stat row */}
-          <div className="mt-10 grid grid-cols-3 gap-6 border-t border-ink pt-6">
+          <div className="mt-10 grid gap-6 border-t border-ink pt-6 sm:grid-cols-3">
             <Stat number="reuse" label="Deterministic SOP-backed steps" />
             <Stat number="branch" label="Evidence-backed decision points" />
             <Stat number="human" label="Explicit judgment required" />
@@ -57,7 +57,7 @@ export function Bottleneck() {
         </div>
 
         {/* Right: animated clock */}
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex min-w-0 items-center justify-center overflow-visible">
           <BottleneckClock />
         </div>
       </div>
@@ -107,10 +107,10 @@ function BottleneckClock() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const size = 380;
+  const size = 460;
   const cx = size / 2;
   const cy = size / 2;
-  const r = 150;
+  const r = 148;
 
   // Each phase occupies an equal arc. As `t` progresses, more phases fill.
   const segCount = PHASES.length;
@@ -134,8 +134,8 @@ function BottleneckClock() {
   const sweepDeg = t * 360;
 
   return (
-    <div className="relative">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div className="relative w-full max-w-[460px]">
+      <svg className="w-full overflow-visible" viewBox={`0 0 ${size} ${size}`}>
         {/* Outer ring with tick marks */}
         <circle cx={cx} cy={cy} r={r + 12} fill="none" stroke="#16140f" strokeWidth="1" opacity={0.3} />
 
@@ -269,9 +269,23 @@ function BottleneckClock() {
         {/* Phase labels around the outside */}
         {PHASES.map((phase, i) => {
           const midDeg = i * segAngle + segAngle / 2;
-          const [lx, ly] = polar(midDeg, r + 30);
+          const [rawLx, rawLy] = polar(midDeg, r + 56);
+          const boxW = 138;
+          const boxH = 42;
+          const lx = Math.max(boxW / 2 + 12, Math.min(size - boxW / 2 - 12, rawLx));
+          const ly = Math.max(boxH / 2 + 12, Math.min(size - boxH / 2 - 12, rawLy));
           return (
             <g key={`label-${phase.label}`}>
+              <rect
+                x={lx - boxW / 2}
+                y={ly - boxH / 2}
+                width={boxW}
+                height={boxH}
+                fill="#f4efe6"
+                stroke="#16140f"
+                strokeWidth="0.55"
+                opacity="0.92"
+              />
               <text
                 x={lx}
                 y={ly - 2}
@@ -279,8 +293,8 @@ function BottleneckClock() {
                 className="fill-ink"
                 style={{
                   fontFamily: "JetBrains Mono, monospace",
-                  fontSize: 9,
-                  letterSpacing: "0.14em",
+                  fontSize: 7.5,
+                  letterSpacing: "0.08em",
                   textTransform: "uppercase",
                 }}
               >
@@ -293,8 +307,8 @@ function BottleneckClock() {
                 className="fill-rust"
                 style={{
                   fontFamily: "JetBrains Mono, monospace",
-                  fontSize: 9,
-                  letterSpacing: "0.14em",
+                  fontSize: 8,
+                  letterSpacing: "0.08em",
                 }}
               >
                 {phase.days}
