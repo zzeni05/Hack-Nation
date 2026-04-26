@@ -1,4 +1,4 @@
-import type { ExecutionRun, Workflow } from "@/types";
+import type { ExecutionRun, MemoryInsights, Workflow } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -477,4 +477,14 @@ export async function saveRunFindings(
     }),
   });
   return result.run;
+}
+
+export async function getMemoryInsights(): Promise<MemoryInsights> {
+  return apiFetch<MemoryInsights>("/api/memory/insights");
+}
+
+export async function deleteAllMemory(): Promise<{ ok: boolean; cleared: Record<string, number>; insights: MemoryInsights }> {
+  return apiFetch<{ ok: boolean; cleared: Record<string, number>; insights: MemoryInsights }>("/api/memory", {
+    method: "DELETE",
+  });
 }

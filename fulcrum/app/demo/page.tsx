@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { ExecutionRun, Workflow } from "@/types";
+import type { ExecutionRun, MemoryInsights, Workflow } from "@/types";
 import type { PrepStatus, RunPreparation, RunPreparationItem } from "@/types";
 import {
   compileWorkflowStream,
@@ -11,6 +11,8 @@ import {
   completeExecutionRun,
   completeRunStep,
   createExecutionRun,
+  deleteAllMemory,
+  getMemoryInsights,
   modifyStep,
   saveRunStepNotes,
   startRunStep,
@@ -36,7 +38,7 @@ import { ExecutionTrace, SopImprovementPanel } from "@/components/Trace";
 import { ExecutionWorkspace } from "@/components/ExecutionWorkspace";
 import { KnowledgeUpload } from "@/components/KnowledgeUpload";
 import { GuidedShell, StageHeader, type AppStage, type StageItem } from "@/components/guided/GuidedShell";
-import { ArrowRight, BookOpenText, ClipboardCheck, Download, ExternalLink, FileText, LogOut, RefreshCw, Save, Search, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpenText, ClipboardCheck, Database, Download, ExternalLink, FileText, History, LogOut, RefreshCw, Save, Search, Sparkles } from "lucide-react";
 
 const AUTH_KEY = "operon_demo_auth";
 
@@ -63,6 +65,10 @@ export default function Home() {
   const [retrievalEvents, setRetrievalEvents] = useState<RetrievalPreviewEvent[]>([]);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [executionStepId, setExecutionStepId] = useState<string | null>(null);
+  const [memoryInsights, setMemoryInsights] = useState<MemoryInsights | null>(null);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memoryDeleting, setMemoryDeleting] = useState(false);
 
   const selectedStep =
     workflow?.steps.find((s) => s.step_id === selectedStepId) ?? null;
@@ -84,6 +90,50 @@ export default function Home() {
     window.localStorage.removeItem(AUTH_KEY);
     router.replace("/");
   }
+
+  async function loadMemoryInsights() {
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      setMemoryInsights(await getMemoryInsights());
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : "Failed to load memory insights");
+    } finally {
+      setMemoryLoading(false);
+    }
+  }
+
+  async function handleDeleteAllMemory() {
+    const confirmed = window.confirm(
+      "Delete all local workflows, runs, feedback, uploaded docs, protocol cache, and vector memory? This cannot be undone."
+    );
+    if (!confirmed) return;
+    setMemoryDeleting(true);
+    setMemoryError(null);
+    try {
+      const result = await deleteAllMemory();
+      setMemoryInsights(result.insights);
+      setWorkflow(null);
+      setExecutionRun(null);
+      setSelectedStepId(null);
+      setExecutionStepId(null);
+      setRetrievalSources([]);
+      setSelectedSourceUrls(new Set());
+      setRetrievalEvents([]);
+      setCompileEvents([]);
+      setStage("memory_insights");
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : "Failed to delete local memory");
+    } finally {
+      setMemoryDeleting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (stage === "memory_insights" && !memoryInsights && !memoryLoading) {
+      void loadMemoryInsights();
+    }
+  }, [stage]);
 
   async function handleCompile(hypothesis: string, retrieval: RetrievalOptions) {
     setIsCompiling(true);
@@ -344,6 +394,17 @@ export default function Home() {
         {stage === "review" && workflow && (
           <ReviewStage workflow={workflow} executionRun={executionRun} onSaveFindings={handleSaveFindings} />
         )}
+
+        {stage === "memory_insights" && (
+          <MemoryInsightsStage
+            insights={memoryInsights}
+            loading={memoryLoading}
+            error={memoryError}
+            deleting={memoryDeleting}
+            onRefresh={loadMemoryInsights}
+            onDeleteAll={handleDeleteAllMemory}
+          />
+        )}
       </GuidedShell>
 
       {/* Step inspector drawer */}
@@ -404,6 +465,7 @@ function buildStages(
     stage("prepare_run", "06", "Prepare run", "Readiness", !hasWorkflow, hasRun, workflow?.run_preparation?.readiness_status?.replaceAll("_", " ")),
     stage("execute", "07", "Execute run", "Runbook", !hasWorkflow, completedRun, hasRun ? executionRun?.status : "start run"),
     stage("review", "08", "Review", "Memory", !hasWorkflow, completedRun, "Trace and SOP signals"),
+    stage("memory_insights", "09", "Memory insights", "Learning", false, false, "Previous runs and stored learning"),
   ];
 }
 
@@ -1379,6 +1441,226 @@ function ReviewStage({
       </div>
     </div>
   );
+}
+
+function MemoryInsightsStage({
+  insights,
+  loading,
+  error,
+  deleting,
+  onRefresh,
+  onDeleteAll,
+}: {
+  insights: MemoryInsights | null;
+  loading: boolean;
+  error: string | null;
+  deleting: boolean;
+  onRefresh: () => Promise<void>;
+  onDeleteAll: () => Promise<void>;
+}) {
+  return (
+    <div>
+      <StageHeader number="09" eyebrow="Memory insights" title="Inspect previous runs and learning signals.">
+        This view only reports stored workflows, completed run records, scientist feedback, and vector-indexed memory. Empty states mean the system has not collected that evidence yet.
+      </StageHeader>
+
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-ink pb-4">
+        <p className="max-w-[78ch] font-display text-[14px] leading-[1.45] text-ink-soft">
+          Previous hypotheses and run analytics are used as retrievable lab memory for future compilation, run preparation, decision support, and SOP improvement review.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => void onRefresh()}
+            disabled={loading || deleting}
+            className="inline-flex items-center gap-2 border border-ink/30 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink transition-colors hover:border-ink disabled:opacity-40"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} strokeWidth={1.5} />
+            {loading ? "Loading" : "Refresh"}
+          </button>
+          <button
+            onClick={() => void onDeleteAll()}
+            disabled={loading || deleting}
+            className="inline-flex items-center gap-2 border border-rust bg-rust/5 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-rust transition-colors hover:bg-rust hover:text-paper disabled:opacity-40"
+          >
+            <Database className="h-3.5 w-3.5" strokeWidth={1.5} />
+            {deleting ? "Deleting" : "Delete all local memory"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-5 border border-rust bg-rust/5 p-4 font-display text-[14px] leading-[1.45] text-rust">
+          {error}
+        </div>
+      )}
+
+      {loading && !insights && (
+        <div className="grid min-h-[320px] place-items-center border border-ink bg-paper">
+          <div className="text-center">
+            <RefreshCw className="mx-auto h-6 w-6 animate-spin text-rust" strokeWidth={1.5} />
+            <div className="mt-4 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">
+              Loading stored workflows, runs, feedback, and vector memory
+            </div>
+          </div>
+        </div>
+      )}
+
+      {insights && (
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-8">
+            <section className="grid gap-3 md:grid-cols-4">
+              <MemoryMetric icon={FileText} label="Workflows" value={insights.insights.workflow_count} />
+              <MemoryMetric icon={History} label="Runs" value={insights.insights.run_count} />
+              <MemoryMetric icon={ClipboardCheck} label="Completed" value={insights.insights.completed_run_count} />
+              <MemoryMetric icon={Database} label="Feedback" value={insights.insights.feedback_count} />
+              <MemoryMetric icon={Sparkles} label="Custom branches" value={insights.insights.custom_branch_count} />
+              <MemoryMetric icon={BookOpenText} label="Manual gaps" value={insights.insights.manual_gap_resolution_count} />
+              <MemoryMetric icon={BarChart3} label="Run prep" value={insights.insights.run_prep_count} />
+              <MemoryMetric icon={RefreshCw} label="Deviations" value={insights.insights.deviation_count} />
+            </section>
+
+            <MemoryPanel title="Previous hypotheses" subtitle="Compiled workflows stored in the local workflow store.">
+              {insights.workflows.length ? insights.workflows.map((workflow) => (
+                <article key={workflow.workflow_id} className="grid gap-3 border-b border-rule p-4 last:border-b-0 lg:grid-cols-[1fr_210px]">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+                      {workflow.workflow_id} · {workflow.experiment_type}
+                    </div>
+                    <p className="mt-2 font-display text-[15px] leading-[1.45] text-ink">{workflow.hypothesis || "No hypothesis text recorded."}</p>
+                    <div className="mt-2 font-display text-[13px] leading-[1.4] text-ink-soft">
+                      Basis: {workflow.protocol_basis || "No protocol basis recorded."}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-mute">
+                    <span>Readiness {formatPercent(workflow.readiness)}</span>
+                    <span>{workflow.open_decisions} decisions</span>
+                    <span>{workflow.run_count} runs</span>
+                    <span>{workflow.memory_used_count} memories used</span>
+                  </div>
+                </article>
+              )) : <MemoryEmpty text="No compiled workflows are stored yet." />}
+            </MemoryPanel>
+
+            <MemoryPanel title="Previous runs" subtitle="Execution records with status, deviations, attachments, and findings.">
+              {insights.runs.length ? insights.runs.map((run) => (
+                <article key={run.run_id} className="grid gap-3 border-b border-rule p-4 last:border-b-0 lg:grid-cols-[1fr_220px]">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+                      {run.run_id} · {run.status}
+                    </div>
+                    <p className="mt-2 font-display text-[14px] leading-[1.45] text-ink-soft">
+                      {run.conclusion || run.findings_preview || "No conclusion or findings recorded yet."}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-mute">
+                    <span>{run.completed_steps}/{run.total_steps} steps</span>
+                    <span>{run.deviation_count} deviations</span>
+                    <span>{run.attachment_count} files</span>
+                    <span>{run.completed_at ? "completed" : "open"}</span>
+                  </div>
+                </article>
+              )) : <MemoryEmpty text="No execution runs are stored yet. Start and complete a run in Step 07 to create run memory." />}
+            </MemoryPanel>
+
+            <MemoryPanel title="Learning events" subtitle="Concrete events that can influence future workflows.">
+              {insights.learning_events.length ? insights.learning_events.map((event, index) => (
+                <article key={`${event.event_type}-${event.workflow_id ?? "none"}-${event.run_id ?? "none"}-${index}`} className="border-b border-rule p-4 last:border-b-0">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-rust">
+                    {event.event_type.replaceAll("_", " ")} {event.timestamp ? `· ${formatDateTime(event.timestamp)}` : ""}
+                  </div>
+                  <div className="mt-1 font-display text-[16px] leading-tight">{event.label}</div>
+                  <p className="mt-2 font-display text-[13px] leading-[1.45] text-ink-soft">{event.description}</p>
+                </article>
+              )) : <MemoryEmpty text="No learning events have been recorded yet." />}
+            </MemoryPanel>
+          </div>
+
+          <aside className="space-y-5 xl:sticky xl:top-4 xl:self-start">
+            <section className="border border-ink bg-paper-deep/30 p-4">
+              <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">How memory improves future workflows</div>
+              <ul className="mt-3 space-y-3 font-display text-[13px] leading-[1.45] text-ink-soft">
+                <li>Completed runs are indexed as prior-run memory with execution notes, deviations, actual values, findings, and attachment metadata.</li>
+                <li>Custom decision branches and manually authored missing-context steps are indexed as scientist notes for similar future hypotheses.</li>
+                <li>Run-preparation confirmations are indexed so future plans can learn recurring approval, procurement, schedule, validation, and risk requirements.</li>
+                <li>Feedback is stored separately and retrieved by experiment type and hypothesis terms during compilation.</li>
+              </ul>
+            </section>
+            <MemoryCountList title="Experiment types" items={insights.insights.top_experiment_types} empty="No experiment-type history yet." />
+            <MemoryCountList title="Feedback sections" items={insights.insights.top_feedback_sections} empty="No feedback sections yet." />
+            <MemoryCountList title="Vector memory sources" items={insights.insights.memory_sources} empty="No vector-indexed memory yet." />
+            <section className="border border-ink bg-paper p-4">
+              <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">Improvement opportunities</div>
+              {insights.improvement_opportunities.length ? (
+                <ul className="mt-3 space-y-2 font-display text-[13px] leading-[1.45] text-ink-soft">
+                  {insights.improvement_opportunities.map((item) => <li key={item}>- {item}</li>)}
+                </ul>
+              ) : (
+                <p className="mt-3 font-display text-[13px] leading-[1.45] text-ink-soft">No improvement opportunities detected from stored evidence yet.</p>
+              )}
+            </section>
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MemoryMetric({ icon: Icon, label, value }: { icon: typeof FileText; label: string; value: number }) {
+  return (
+    <div className="border border-ink bg-paper p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">{label}</div>
+        <Icon className="h-4 w-4 text-rust" strokeWidth={1.5} />
+      </div>
+      <div className="mt-3 font-display text-[30px] leading-none tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function MemoryPanel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <section className="border border-ink bg-paper">
+      <div className="border-b border-ink px-4 py-3">
+        <div className="font-display text-[20px] leading-tight tracking-tight">{title}</div>
+        <p className="mt-1 font-display text-[13px] leading-[1.45] text-ink-soft">{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function MemoryEmpty({ text }: { text: string }) {
+  return <p className="p-4 font-display text-[14px] leading-[1.45] text-ink-soft">{text}</p>;
+}
+
+function MemoryCountList({ title, items, empty }: { title: string; items: { label: string; count: number }[]; empty: string }) {
+  return (
+    <section className="border border-ink bg-paper p-4">
+      <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-ink-mute">{title}</div>
+      {items.length ? (
+        <div className="mt-3 space-y-2">
+          {items.map((item) => (
+            <div key={item.label} className="flex items-center justify-between gap-3 border-b border-rule pb-2 last:border-b-0 last:pb-0">
+              <span className="font-display text-[13px] leading-tight text-ink-soft">{item.label}</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-mute">{item.count}</span>
+            </div>
+          ))}
+        </div>
+      ) : <p className="mt-3 font-display text-[13px] leading-[1.45] text-ink-soft">{empty}</p>}
+    </section>
+  );
+}
+
+function formatPercent(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function FindingsEditor({

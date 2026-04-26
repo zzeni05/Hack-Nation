@@ -375,3 +375,65 @@ export interface SampleHypothesis {
   full: string;
   plain: string;
 }
+
+export interface MemoryInsights {
+  workflows: {
+    workflow_id: string;
+    hypothesis: string;
+    experiment_type: string;
+    created_at?: string;
+    updated_at?: string;
+    protocol_basis: string;
+    readiness?: number | null;
+    open_decisions: number;
+    run_count: number;
+    latest_run_status?: string | null;
+    memory_used_count: number;
+  }[];
+  runs: {
+    run_id: string;
+    workflow_id: string;
+    status: string;
+    created_at?: string;
+    completed_at?: string | null;
+    completed_steps: number;
+    total_steps: number;
+    deviation_count: number;
+    attachment_count: number;
+    conclusion: string;
+    findings_preview: string;
+  }[];
+  feedback: {
+    feedback_id: string;
+    workflow_id: string;
+    experiment_type: string;
+    section: string;
+    step_id?: string;
+    correction: string;
+    reason: string;
+    created_at?: string;
+  }[];
+  vector_stats: Record<string, number>;
+  learning_events: {
+    event_type: string;
+    label: string;
+    description: string;
+    workflow_id?: string;
+    run_id?: string;
+    timestamp?: string | null;
+  }[];
+  insights: {
+    workflow_count: number;
+    run_count: number;
+    completed_run_count: number;
+    feedback_count: number;
+    custom_branch_count: number;
+    manual_gap_resolution_count: number;
+    run_prep_count: number;
+    deviation_count: number;
+    top_experiment_types: { label: string; count: number }[];
+    top_feedback_sections: { label: string; count: number }[];
+    memory_sources: { label: string; count: number }[];
+  };
+  improvement_opportunities: string[];
+}
