@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 /**
@@ -59,8 +59,8 @@ export function HeroOperon() {
         {/* Tagline */}
         <p className="mt-8 max-w-[52ch] font-display text-[19px] leading-[1.45] text-ink-soft sm:text-[21px]">
           From a single sentence to a personalized, lab-ready experiment plan,
-          step by step, from source-grounded protocol reuse to branching decisions
-          and human-resolved ambiguity.
+          step by step, materials to validation, grounded in your lab&rsquo;s own SOPs
+          and the world&rsquo;s authoritative protocol literature.
         </p>
 
         {/* CTA row */}

@@ -105,17 +105,15 @@ function PersonalizedStitch() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Phases:
-  // 0 to 0.25: documents present, no marks
-  // 0.25 to 0.55: marks appear on each side
-  // 0.55 to 0.85: stitch lines connect to center
-  // 0.85 to 1.0: center workflow becomes visible
-  const marksPhase = Math.max(0, Math.min(1, (t - 0.2) / 0.35));
-  const stitchPhase = Math.max(0, Math.min(1, (t - 0.5) / 0.35));
-  const compiledPhase = Math.max(0, Math.min(1, (t - 0.75) / 0.25));
+  // Keep the compiled workflow visible. Only the markups, stitch lines,
+  // and scan accents pulse so the graphic never appears to disappear.
+  const pulse = 0.55 + Math.sin(t * Math.PI * 2) * 0.25;
+  const marksPhase = 0.72 + Math.sin((t + 0.08) * Math.PI * 2) * 0.18;
+  const stitchPhase = 0.55 + Math.sin((t + 0.3) * Math.PI * 2) * 0.28;
+  const scanY = 148 + ((t * 210) % 210);
 
   return (
-    <div className="relative">
+    <div className="relative overflow-visible">
       <svg viewBox="0 0 580 480" className="w-full">
         {/* ---- LEFT STACK: Internal SOPs ---- */}
         <g>
@@ -158,13 +156,9 @@ function PersonalizedStitch() {
               />
             ))}
             {/* Highlighted/marked passages - appear during marksPhase */}
-            {marksPhase > 0 && (
-              <>
-                <rect x="-2" y="62" width="120" height="8" fill="#52613a" opacity={0.25 * marksPhase} />
-                <rect x="-2" y="92" width="100" height="8" fill="#16140f" opacity={0.18 * marksPhase} />
-                <rect x="-2" y="122" width="80" height="8" fill="#52613a" opacity={0.25 * marksPhase} />
-              </>
-            )}
+            <rect x="-2" y="62" width="120" height="8" fill="#52613a" opacity={0.22 * marksPhase} />
+            <rect x="-2" y="92" width="100" height="8" fill="#16140f" opacity={0.16 * marksPhase} />
+            <rect x="-2" y="122" width="80" height="8" fill="#52613a" opacity={0.22 * marksPhase} />
           </g>
           {/* Internal label */}
           <text x="100" y="280" textAnchor="middle" className="fill-ink-mute" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 9, letterSpacing: "0.2em", textTransform: "uppercase" }}>
@@ -214,9 +208,7 @@ function PersonalizedStitch() {
                 opacity={0.3}
               />
             ))}
-            {marksPhase > 0 && (
-              <rect x="-2" y="92" width="100" height="8" fill="#3a352b" opacity={0.2 * marksPhase} />
-            )}
+            <rect x="-2" y="92" width="100" height="8" fill="#3a352b" opacity={0.18 * marksPhase} />
           </g>
           <text x="488" y="290" textAnchor="middle" className="fill-ink-mute" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 9, letterSpacing: "0.2em", textTransform: "uppercase" }}>
             External protocols
@@ -227,44 +219,17 @@ function PersonalizedStitch() {
         </g>
 
         {/* ---- STITCH LINES from sides to center ---- */}
-        {stitchPhase > 0 && (
-          <g opacity={stitchPhase}>
-            {/* Left to center */}
-            <path
-              d="M 200 130 Q 270 130 290 200"
-              fill="none"
-              stroke="#52613a"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-            />
-            <path
-              d="M 200 165 Q 270 165 290 230"
-              fill="none"
-              stroke="#16140f"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-            />
-            <path
-              d="M 200 200 Q 270 200 290 260"
-              fill="none"
-              stroke="#52613a"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-            />
-            {/* Right to center */}
-            <path
-              d="M 400 175 Q 350 175 310 240"
-              fill="none"
-              stroke="#3a352b"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-            />
-          </g>
-        )}
+        <g opacity={stitchPhase}>
+          {/* Left to center */}
+          <path d="M 200 130 Q 270 130 290 200" fill="none" stroke="#52613a" strokeWidth="1.2" strokeDasharray="4 4" />
+          <path d="M 200 165 Q 270 165 290 230" fill="none" stroke="#16140f" strokeWidth="1.2" strokeDasharray="4 4" />
+          <path d="M 200 200 Q 270 200 290 260" fill="none" stroke="#52613a" strokeWidth="1.2" strokeDasharray="4 4" />
+          {/* Right to center */}
+          <path d="M 400 175 Q 350 175 310 240" fill="none" stroke="#3a352b" strokeWidth="1.2" strokeDasharray="4 4" />
+        </g>
 
         {/* ---- CENTER: Compiled workflow ---- */}
-        {compiledPhase > 0 && (
-          <g opacity={compiledPhase}>
+        <g>
             <rect
               x="240"
               y="130"
@@ -274,6 +239,7 @@ function PersonalizedStitch() {
               stroke="#16140f"
               strokeWidth="1.5"
             />
+            <rect x="244" y={scanY} width="92" height="2" fill="#b8431c" opacity={0.22 + pulse * 0.24} />
             {/* Title */}
             <text x="290" y="148" textAnchor="middle" className="fill-rust" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 7, letterSpacing: "0.22em", textTransform: "uppercase" }}>
               ◆ Operon
@@ -313,8 +279,7 @@ function PersonalizedStitch() {
             <text x="290" y="338" textAnchor="middle" className="fill-ink-mute" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 7, letterSpacing: "0.16em", textTransform: "uppercase" }}>
               Source-grounded
             </text>
-          </g>
-        )}
+        </g>
 
         {/* Center label below */}
         <text x="290" y="378" textAnchor="middle" className="fill-ink" style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 13, fontStyle: "italic" }}>

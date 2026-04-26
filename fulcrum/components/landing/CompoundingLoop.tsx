@@ -106,10 +106,10 @@ export function LoopDiagram() {
     return () => clearInterval(id);
   }, []);
 
-  const size = 460;
+  const size = 560;
   const cx = size / 2;
   const cy = size / 2;
-  const r = 165;
+  const r = 158;
 
   const polar = (angleDeg: number, radius: number) => {
     const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -121,8 +121,8 @@ export function LoopDiagram() {
   const [dotX, dotY] = polar(dotAngle, r);
 
   return (
-    <div className="relative">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div className="relative w-full max-w-[560px]">
+      <svg className="w-full" viewBox={`0 0 ${size} ${size}`}>
         {/* Outer ring */}
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="#16140f" strokeWidth="0.5" opacity="0.3" />
         <circle cx={cx} cy={cy} r={r + 12} fill="none" stroke="#16140f" strokeWidth="0.5" opacity="0.15" />
@@ -220,8 +220,12 @@ export function LoopDiagram() {
         {/* Nodes */}
         {NODES.map((node, i) => {
           const [nx, ny] = polar(node.angle, r);
-          // Label position outside the ring
-          const [lx, ly] = polar(node.angle, r + 50);
+          // Label card position inside the larger viewbox, clamped so text never clips.
+          const [rawLx, rawLy] = polar(node.angle, r + 70);
+          const boxW = 142;
+          const boxH = 44;
+          const lx = Math.max(boxW / 2 + 8, Math.min(size - boxW / 2 - 8, rawLx));
+          const ly = Math.max(boxH / 2 + 8, Math.min(size - boxH / 2 - 8, rawLy));
           const isPassed = dotAngle >= node.angle - 5 && dotAngle <= node.angle + 5;
           return (
             <g key={i}>
@@ -236,6 +240,15 @@ export function LoopDiagram() {
               <circle cx={nx} cy={ny} r="3" fill="#f4efe6" />
 
               {/* Label */}
+              <rect
+                x={lx - boxW / 2}
+                y={ly - boxH / 2}
+                width={boxW}
+                height={boxH}
+                fill="#f4efe6"
+                stroke={isPassed ? "#b8431c" : "#c9bfa8"}
+                strokeWidth={isPassed ? 1.2 : 0.8}
+              />
               <text
                 x={lx}
                 y={ly - 4}
@@ -243,17 +256,17 @@ export function LoopDiagram() {
                 className="fill-ink"
                 style={{
                   fontFamily: "JetBrains Mono, monospace",
-                  fontSize: 9,
-                  letterSpacing: "0.18em",
+                  fontSize: 7.5,
+                  letterSpacing: "0.08em",
                   textTransform: "uppercase",
                   fontWeight: 600,
                 }}
               >
-                {String(i + 1).padStart(2, "0")} · {node.label}
+                {String(i + 1).padStart(2, "0")} {node.label}
               </text>
               <text
                 x={lx}
-                y={ly + 10}
+                y={ly + 11}
                 textAnchor="middle"
                 className="fill-ink-mute"
                 style={{
